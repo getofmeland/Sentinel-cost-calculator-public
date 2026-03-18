@@ -81,7 +81,7 @@ function AppShell() {
         </div>
       </main>
 
-      <footer className="border-t border-white/8 mt-4">
+      <footer className="border-t border-white/8 mt-4 pb-16">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-center gap-1.5 text-xs text-light/30">
           <span>Built by</span>
           <a
