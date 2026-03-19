@@ -55,12 +55,12 @@ export function RegionSelector({
             value={region}
             onChange={e => onRegionChange(e.target.value)}
             disabled={isLoading}
-            className="bg-white/10 border border-white/20 text-light rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/40 disabled:opacity-60"
+            className="bg-[#1e2130] border border-white/20 text-light rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/40 disabled:opacity-60"
           >
             {AZURE_REGION_GROUPS.map(({ group, regions }) => (
-              <optgroup key={group} label={group}>
+              <optgroup key={group} label={group} className="bg-[#1e2130] text-light/60">
                 {regions.map(r => (
-                  <option key={r.arm} value={r.arm} className="text-dark bg-surface">
+                  <option key={r.arm} value={r.arm} className="bg-[#1e2130] text-light">
                     {r.label} ({r.arm})
                   </option>
                 ))}

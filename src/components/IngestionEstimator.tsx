@@ -53,7 +53,7 @@ const TABS = [
 ] satisfies { id: TabId; label: string }[]
 
 const MIN_USERS = 100
-const MAX_USERS = 2000
+const MAX_USERS = 50000
 const STEP = 50
 
 interface Props {
