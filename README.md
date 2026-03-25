@@ -27,7 +27,7 @@ A client-side cost calculator for Microsoft Sentinel SIEM deployments. Built for
 ## Quick start
 
 ```bash
-git clone https://github.com/CloudSecurityInsider/sentinel-cost-calculator.git
+git clone https://github.com/CloudSecurityInsider/sentinel-cost-calculator-public.git
 cd sentinel-cost-calculator
 npm install
 npm run dev
