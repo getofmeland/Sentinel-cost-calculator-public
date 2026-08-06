@@ -22,6 +22,7 @@ import { summariseIngestion, estimateSourceGbPerDay } from '../ingestion'
 import { interpolateRange, getSizeMultiplier } from '../../data/tshirtSizes'
 import { SERVER_WORKLOADS } from '../../data/serverWorkloads'
 import { computeServerWorkloadRows } from '../serverWorkloads'
+import { round2 } from '../round'
 import { LOG_TIER_DEFINITIONS } from '../../data/logTiers'
 import {
   STATIC_PRICING_BUNDLE,
@@ -38,10 +39,8 @@ import type { LogSource } from '../../data/pricing'
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** round2 mirrors the private helper used in the production utilities. */
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
+// round2 is imported from the production module rather than re-implemented, so
+// a change in rounding behaviour cannot pass unnoticed.
 
 // ---------------------------------------------------------------------------
 // 1. fmtGbp

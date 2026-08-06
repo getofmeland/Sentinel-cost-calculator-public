@@ -1,7 +1,10 @@
 // Microsoft Sentinel pricing data — UK South, as of March 2026
 // Update this file when Microsoft publishes new rates.
 
+// Fallback exchange rates, used when the live FX fetch is unavailable.
+// The user can override either from the UI.
 export const EXCHANGE_RATE_USD_TO_GBP = 0.79
+export const EXCHANGE_RATE_USD_TO_EUR = 0.92
 
 // ─── Pay-As-You-Go ───────────────────────────────────────────────────────────
 

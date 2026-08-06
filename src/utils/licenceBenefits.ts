@@ -6,6 +6,7 @@ import {
   DEFENDER_SERVERS_FREE_GB_PER_SERVER_PER_DAY,
 } from '../data/licenceBenefits'
 import { SourceEstimateRow } from './ingestion'
+import { round2 } from './round'
 import {
   DAYS_PER_MONTH,
   PricingBundle,
@@ -38,10 +39,6 @@ export interface LicenceBenefitResult {
   /** max(0, analyticsGbPerDay - totalGrantGbPerDay) */
   billableAnalyticsGbPerDay: number
   totalSavedMonthlyUsd: number
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
 }
 
 export function computeLicenceBenefits(

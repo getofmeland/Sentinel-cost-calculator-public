@@ -1,4 +1,4 @@
-import { EXCHANGE_RATE_USD_TO_GBP } from '../data/pricing'
+import { EXCHANGE_RATE_USD_TO_GBP, EXCHANGE_RATE_USD_TO_EUR } from '../data/pricing'
 
 export type CurrencyCode = 'GBP' | 'USD' | 'EUR'
 
@@ -28,7 +28,7 @@ export function fmtCurrency(
   usd: number,
   currency: CurrencyCode,
   fxRateGbp = EXCHANGE_RATE_USD_TO_GBP,
-  fxRateEur = 0.92,
+  fxRateEur = EXCHANGE_RATE_USD_TO_EUR,
   decimals = 0,
 ): string {
   if (currency === 'GBP') {

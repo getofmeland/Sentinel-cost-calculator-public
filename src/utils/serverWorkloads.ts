@@ -3,10 +3,7 @@ import { TshirtSize, getSizeMultiplier, interpolateRange } from '../data/tshirtS
 import { LogTierKey, getTierDefinition } from '../data/logTiers'
 import { PricingBundle, LogSourceGroup, DATA_LAKE_COMPRESSION_RATIO } from '../data/pricing'
 import { SourceEstimateRow } from './ingestion'
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
+import { round2 } from './round'
 
 export function computeServerWorkloadRows(
   workloads: ServerWorkload[],

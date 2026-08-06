@@ -1,6 +1,7 @@
 import { LOG_SOURCES, LogSource, PAYG_RATE_USD_PER_GB, EXCHANGE_RATE_USD_TO_GBP, DATA_LAKE_COMPRESSION_RATIO, RetentionStrategy, PricingBundle, STATIC_PRICING_BUNDLE } from '../data/pricing'
 import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition } from '../data/logTiers'
 import { interpolateRange } from '../data/tshirtSizes'
+import { round2 } from './round'
 
 export interface SourceEstimateRow {
   source: LogSource
@@ -43,10 +44,6 @@ export interface IngestionSummary {
   // Kept for backwards compat — these now alias the new 3-way split
   analyticsRetentionMonthlyCostUsd: number
   dataLakeRetentionMonthlyCostUsd: number
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
 }
 
 export function midpoint(range: [number, number]): number {
