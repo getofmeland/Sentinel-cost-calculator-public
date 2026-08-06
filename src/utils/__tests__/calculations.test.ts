@@ -18,7 +18,7 @@ import { describe, it, expect } from 'vitest'
 import { fmtGbp } from '../currency'
 import { breakevenForTier, computeTierOptions, costAtVolume } from '../tiers'
 import { computeLicenceBenefits } from '../licenceBenefits'
-import { summariseIngestion, estimateSourceGbPerDay } from '../ingestion'
+import { summariseIngestion, estimateSourceGbPerDay, scaledDeviceCount } from '../ingestion'
 import { interpolateRange, getSizeMultiplier, TSHIRT_SIZES } from '../../data/tshirtSizes'
 import { SERVER_WORKLOADS } from '../../data/serverWorkloads'
 import { computeServerWorkloadRows } from '../serverWorkloads'
@@ -551,6 +551,47 @@ describe('t-shirt size interpolation', () => {
     const wideLinear = 5 + (50 - 5) * 0.5
     const wideShift = Math.abs(interpolateRange(5, 50, 0.5) - wideLinear) / wideLinear
     expect(wideShift).toBeGreaterThan(0.3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5b. Device counts scale with organisation size
+// ---------------------------------------------------------------------------
+
+describe('scaledDeviceCount', () => {
+  const firewall = LOG_SOURCES.find(s => s.id === 'azure-firewall')!
+  const dns = LOG_SOURCES.find(s => s.id === 'dns')!
+
+  it('keeps the declared default at the 500-user reference point', () => {
+    expect(scaledDeviceCount(firewall, 500)).toBe(firewall.defaultDeviceCount)
+  })
+
+  it('never seeds fewer devices than the declared default', () => {
+    expect(scaledDeviceCount(firewall, 100)).toBeGreaterThanOrEqual(firewall.defaultDeviceCount!)
+    expect(scaledDeviceCount(firewall, 0)).toBeGreaterThanOrEqual(firewall.defaultDeviceCount!)
+  })
+
+  it('grows with headcount, so a large estate is not seeded like a small office', () => {
+    // The whole point: 50,000 users previously still got the small-office seed.
+    expect(scaledDeviceCount(dns, 50000)).toBeGreaterThan(scaledDeviceCount(dns, 500))
+  })
+
+  it('grows sub-linearly, since infrastructure is consolidated not per-seat', () => {
+    const at500 = scaledDeviceCount(dns, 500)
+    const at50k = scaledDeviceCount(dns, 50000)
+    // 100x the users must not imply 100x the firewalls.
+    expect(at50k).toBeLessThan(at500 * 100)
+    expect(at50k).toBeGreaterThan(at500)
+  })
+
+  it('leaves user-scaled sources alone', () => {
+    const entra = LOG_SOURCES.find(s => s.id === 'entra-id')!
+    expect(scaledDeviceCount(entra, 50000)).toBe(entra.defaultDeviceCount ?? 0)
+  })
+
+  it('is not disturbed by a negative or NaN user count', () => {
+    expect(scaledDeviceCount(firewall, -100)).toBeGreaterThanOrEqual(firewall.defaultDeviceCount!)
+    expect(Number.isFinite(scaledDeviceCount(firewall, NaN))).toBe(true)
   })
 })
 

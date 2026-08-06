@@ -88,6 +88,31 @@ export function midpoint(range: [number, number]): number {
 }
 
 /**
+ * How many of a device-scaled source an organisation of this size is likely to
+ * run, used to seed the count before the user edits it.
+ *
+ * `defaultDeviceCount` is a fixed number calibrated for a small office, so a
+ * 50,000-user estate was still seeded with two firewalls and two DNS servers
+ * while its user-scaled sources grew a hundredfold. The two errors pull in
+ * opposite directions and land in different pricing tiers, so they do not
+ * cancel — the network side was simply understated at the top of the range.
+ *
+ * Scaling is sub-linear: infrastructure is consolidated and redundant rather
+ * than provisioned per seat, so a tenfold headcount does not mean tenfold
+ * firewalls. The seed never drops below the source's own default.
+ */
+export function scaledDeviceCount(source: LogSource, userCount: number): number {
+  const base = source.defaultDeviceCount ?? 0
+  if (base === 0 || source.scaleBy !== 'devices') return base
+
+  // Calibrated so the declared default holds at the 500-user reference point.
+  const REFERENCE_USERS = 500
+  const users = sanitiseQuantity(userCount, REFERENCE_USERS)
+  const factor = Math.sqrt(Math.max(users, REFERENCE_USERS) / REFERENCE_USERS)
+  return Math.max(base, Math.round(base * factor))
+}
+
+/**
  * Coerce an untrusted numeric input to a non-negative, finite value.
  *
  * The React inputs already clamp keystrokes, but the calculation layer is
@@ -125,7 +150,8 @@ export function estimateSourceGbPerDay(
   }
 
   if (source.scaleBy === 'devices' && gbPerDeviceRange) {
-    const count = sanitiseQuantity(deviceCount, source.defaultDeviceCount ?? 0)
+    // An explicit count always wins; the scaled seed only fills the gap.
+    const count = sanitiseQuantity(deviceCount, scaledDeviceCount(source, safeUserCount))
     return round2(interpolateRange(gbPerDeviceRange[0], gbPerDeviceRange[1], sizeMultiplier) * count)
   }
   if (gbPer1000UsersRange) {

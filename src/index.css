@@ -11,3 +11,71 @@
 body {
   @apply bg-dark text-light;
 }
+
+/*
+ * Print styles. The screen theme is a dark UI with a fixed bottom bar and tab
+ * chrome, none of which belongs on paper — and printing dark backgrounds wastes
+ * a cartridge. This flips to black-on-white, drops the interactive furniture,
+ * and lets every tab panel through so the printout is the whole estimate rather
+ * than whichever tab happened to be open.
+ */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Reveal all tab panels — on screen only one is visible at a time. */
+  [role='tabpanel'][hidden] {
+    display: block !important;
+  }
+
+  /* Interactive furniture that means nothing on paper. */
+  [role='tablist'],
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* The sticky bar would otherwise overlap content on every page. */
+  .fixed {
+    position: static !important;
+    box-shadow: none !important;
+  }
+
+  /* Flatten the dark surfaces to plain paper. */
+  [class*='bg-surface'],
+  [class*='bg-dark'],
+  [class*='bg-white/'] {
+    background: transparent !important;
+  }
+
+  /* Translucent light text is invisible on white. */
+  [class*='text-light'],
+  [class*='text-white'] {
+    color: #000 !important;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    border: 1px solid #999 !important;
+  }
+
+  /* Do not split a cost table across a page break if it can be avoided. */
+  table,
+  figure {
+    break-inside: avoid;
+  }
+
+  a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.8em;
+  }
+}

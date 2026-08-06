@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { LOG_SOURCES, LogSourceGroup, DAYS_PER_MONTH, RetentionStrategy } from '../data/pricing'
 import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition } from '../data/logTiers'
 import { M365Licence, LICENCES } from '../data/licenceBenefits'
-import { summariseIngestion, estimateSourceGbPerDay } from '../utils/ingestion'
+import { summariseIngestion, estimateSourceGbPerDay, scaledDeviceCount } from '../utils/ingestion'
 import { computeLicenceBenefits } from '../utils/licenceBenefits'
 import { computeTierOptions } from '../utils/tiers'
 import { getDefaultTier } from '../data/tierPlacement'
@@ -22,6 +22,13 @@ import { StickyTotalBar } from './StickyTotalBar'
 import { TabNav } from './TabNav'
 import { CompliancePresetBanner } from './CompliancePresetBanner'
 import { RetentionStrategyPanel } from './RetentionStrategyPanel'
+import { ShareBar } from './ShareBar'
+import {
+  loadInitialState,
+  saveToStorage,
+  type ShareableState,
+} from '../utils/shareState'
+import { buildEstimateCsv, downloadCsv } from '../utils/csvExport'
 
 const GROUP_LABELS: Record<LogSourceGroup, string> = {
   'identity': 'Identity & Entra',
@@ -61,39 +68,95 @@ interface Props {
 }
 
 export function IngestionEstimator({ onPresetChange }: Props) {
-  const { pricing, fxRate } = usePricing()
+  const {
+    pricing, fxRate, eurRate, region, regionDisplayName,
+    onRegionChange, displayCurrency, onCurrencyChange,
+  } = usePricing()
   const [activeTab, setActiveTab] = useState<TabId>('ingestion')
 
+  // A shared link, else the last autosaved estimate, else nothing. Read once on
+  // mount so later edits are not fighting the restore.
+  const [restored] = useState(() => loadInitialState(window.location.search))
+
   // ── Ingestion state ────────────────────────────────────────────────────
-  const [userCount, setUserCount] = useState<number>(500)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [inputDisplayValue, setInputDisplayValue] = useState<string>('500')
-  const [deviceCounts, setDeviceCounts] = useState<Record<string, number>>({})
-  const [logTiers, setLogTiers] = useState<Record<string, LogTierKey>>({})
-  const [retentionDays, setRetentionDays] = useState<Record<string, number>>({})
-  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({})
-  const [manualGbValues, setManualGbValues] = useState<Record<string, number>>({})
+  const [userCount, setUserCount] = useState<number>(restored?.userCount ?? 500)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(restored?.selectedIds ?? []))
+  const [inputDisplayValue, setInputDisplayValue] = useState<string>(String(restored?.userCount ?? 500))
+  const [deviceCounts, setDeviceCounts] = useState<Record<string, number>>(restored?.deviceCounts ?? {})
+  const [logTiers, setLogTiers] = useState<Record<string, LogTierKey>>(restored?.logTiers ?? {})
+  const [retentionDays, setRetentionDays] = useState<Record<string, number>>(restored?.retentionDays ?? {})
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>(restored?.selectedVariants ?? {})
+  const [manualGbValues, setManualGbValues] = useState<Record<string, number>>(restored?.manualGbValues ?? {})
 
   // ── T-shirt sizing state ───────────────────────────────────────────────
-  const [globalSize, setGlobalSize] = useState<TshirtSize>(DEFAULT_TSHIRT_SIZE)
-  const [sourceSizeOverrides, setSourceSizeOverrides] = useState<Record<string, TshirtSize>>({})
+  const [globalSize, setGlobalSize] = useState<TshirtSize>(restored?.globalSize ?? DEFAULT_TSHIRT_SIZE)
+  const [sourceSizeOverrides, setSourceSizeOverrides] = useState<Record<string, TshirtSize>>(restored?.sizeOverrides ?? {})
 
   // ── Server workload state ──────────────────────────────────────────────
-  const [serverCounts, setServerCounts] = useState<Record<string, number>>({})
-  const [serverLevels, setServerLevels] = useState<Record<string, string>>({})
+  const [serverCounts, setServerCounts] = useState<Record<string, number>>(restored?.serverCounts ?? {})
+  const [serverLevels, setServerLevels] = useState<Record<string, string>>(restored?.serverLevels ?? {})
   const [serverSizeOverrides, setServerSizeOverrides] = useState<Record<string, TshirtSize>>({})
 
   // ── Compliance preset state ────────────────────────────────────────────
-  const [activePresetId, setActivePresetId] = useState<CompliancePresetId>('custom')
-  const [mifidExtended, setMifidExtended] = useState(false)
+  const [activePresetId, setActivePresetId] = useState<CompliancePresetId>(restored?.activePresetId ?? 'custom')
+  const [mifidExtended, setMifidExtended] = useState(restored?.mifidExtended ?? false)
 
   // ── Retention strategy state ───────────────────────────────────────────
-  const [globalRetentionStrategy, setGlobalRetentionStrategy] = useState<RetentionStrategy>('data-lake-mirror')
-  const [retentionStrategies, setRetentionStrategies] = useState<Record<string, RetentionStrategy>>({})
+  const [globalRetentionStrategy, setGlobalRetentionStrategy] = useState<RetentionStrategy>(
+    restored?.globalRetentionStrategy ?? 'data-lake-mirror',
+  )
+  const [retentionStrategies, setRetentionStrategies] = useState<Record<string, RetentionStrategy>>(
+    restored?.retentionStrategies ?? {},
+  )
 
   // ── Savings state (lifted so CostSummary can access them) ──────────────
-  const [licence, setLicence] = useState<M365Licence>('none')
-  const [defenderEnabled, setDefenderEnabled] = useState(false)
+  const [licence, setLicence] = useState<M365Licence>(restored?.licence ?? 'none')
+  const [defenderEnabled, setDefenderEnabled] = useState(restored?.defenderEnabled ?? false)
+
+  // Region and currency live in PricingContext, so push the restored values up
+  // once rather than duplicating that state here.
+  useEffect(() => {
+    if (!restored) return
+    if (restored.region !== region) onRegionChange(restored.region)
+    if (restored.displayCurrency !== displayCurrency) onCurrencyChange(restored.displayCurrency)
+    // Mount-only: this restores a link, it is not a two-way binding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Shareable state ────────────────────────────────────────────────────
+
+  const shareableState: ShareableState = useMemo(() => ({
+    userCount,
+    selectedIds: [...selectedIds],
+    globalSize,
+    activePresetId,
+    mifidExtended,
+    globalRetentionStrategy,
+    licence,
+    defenderEnabled,
+    region,
+    displayCurrency,
+    serverCounts,
+    serverLevels,
+    deviceCounts,
+    logTiers,
+    retentionDays,
+    selectedVariants,
+    manualGbValues,
+    sizeOverrides: sourceSizeOverrides,
+    retentionStrategies,
+  }), [
+    userCount, selectedIds, globalSize, activePresetId, mifidExtended,
+    globalRetentionStrategy, licence, defenderEnabled, region, displayCurrency,
+    serverCounts, serverLevels, deviceCounts, logTiers, retentionDays,
+    selectedVariants, manualGbValues, sourceSizeOverrides, retentionStrategies,
+  ])
+
+  // Autosave, debounced so dragging the user slider does not thrash storage.
+  useEffect(() => {
+    const id = setTimeout(() => saveToStorage(shareableState), 400)
+    return () => clearTimeout(id)
+  }, [shareableState])
 
   // ── Derived values ─────────────────────────────────────────────────────
 
@@ -363,6 +426,21 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
   const isEmpty = summary.rows.length === 0
 
+  function handleExportCsv() {
+    const csv = buildEstimateCsv({
+      summary,
+      currency: displayCurrency,
+      fxRate: displayCurrency === 'GBP' ? fxRate : displayCurrency === 'EUR' ? eurRate : 1,
+      paygMonthlyUsd: paygMonthly,
+      withSavingsMonthlyUsd: withSavingsMonthly,
+      optimisedMonthlyUsd: optimisedMonthly,
+      recommendedTierLabel: recommendedOption?.label ?? 'Pay-as-you-go',
+      userCount,
+      region: regionDisplayName,
+    })
+    downloadCsv(`sentinel-estimate-${userCount}-users.csv`, csv)
+  }
+
   // Ingestion tab content (source list + summary bar)
   const ingestionTabContent = (
     <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
@@ -541,7 +619,9 @@ export function IngestionEstimator({ onPresetChange }: Props) {
               <ul className="divide-y divide-white/10">
                 {groupSources.map(source => {
                   const row = summary.rows.find(r => r.source.id === source.id)
-                  const deviceCount = deviceCounts[source.id] ?? source.defaultDeviceCount ?? 0
+                  // Seeded from user count so the displayed number matches what
+                  // the estimate actually uses; an explicit edit still wins.
+                  const deviceCount = deviceCounts[source.id] ?? scaledDeviceCount(source, userCount)
                   const variantId = selectedVariants[source.id] ?? source.defaultVariantId
                   const logTier = (logTiers[source.id] as LogTierKey | undefined) ?? DEFAULT_LOG_TIER
                   const tierDef = getTierDefinition(logTier)
@@ -597,7 +677,10 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         </p>
       </div>
 
-      <TabNav tabs={TABS} activeTab={activeTab} onChange={id => setActiveTab(id as TabId)} />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <TabNav tabs={TABS} activeTab={activeTab} onChange={id => setActiveTab(id as TabId)} />
+        <ShareBar state={shareableState} onExportCsv={handleExportCsv} isEmpty={isEmpty} />
+      </div>
 
       <div id="panel-ingestion" role="tabpanel" aria-labelledby="tab-ingestion" hidden={activeTab !== 'ingestion'}>
         {ingestionTabContent}
