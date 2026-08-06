@@ -164,15 +164,20 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const totalSavings = licenceBenefits.totalSavedMonthlyUsd
   const withSavingsMonthly = Math.max(0, paygMonthly - totalSavings)
   const recommendedOption = commitmentOptions.find(o => o.isRecommended && !o.isPayg)
+
+  // computeTierOptions was given billableAnalyticsGbPerDay, which already has
+  // the E5 and Defender grants removed, so the commitment cost below reflects
+  // them once. Subtracting totalSavings again — as this did — charged the
+  // customer's licence benefit to them twice in their favour, understating the
+  // headline figure by the full value of the grant.
   const analyticsCommitmentMonthly = recommendedOption
     ? recommendedOption.monthlyCostUsd
-    : summary.analyticsDailyCostUsd * DAYS_PER_MONTH
+    : licenceBenefits.billableAnalyticsGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH
   const optimisedMonthly = Math.max(
     0,
     analyticsCommitmentMonthly
       + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
-      + summary.retentionMonthlyCostUsd
-      - totalSavings,
+      + summary.retentionMonthlyCostUsd,
   )
 
   // ── Handlers ───────────────────────────────────────────────────────────
@@ -638,6 +643,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           defenderEnabled={defenderEnabled}
           e5SavedMonthlyUsd={licenceBenefits.e5SavedMonthlyUsd}
           commitmentOptions={commitmentOptions}
+          analyticsGrossGbPerDay={summary.analyticsGbPerDay}
+          analyticsNetGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
         />
       </div>
 

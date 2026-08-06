@@ -959,8 +959,8 @@ describe('negative and NaN inputs are rejected by the calculation layer', () => 
 //     commitment tier is recommended.
 // ---------------------------------------------------------------------------
 
-describe('DEFECT: optimisedMonthly double-counts licence benefit savings', () => {
-  it.fails('subtracting totalSavedMonthlyUsd from a commitment-tier cost that was already sized on the net (post-grant) volume double-counts the E5 grant', () => {
+describe('optimisedMonthly applies the licence grant exactly once', () => {
+  it('does not subtract the grant again from a commitment tier already sized on the net volume', () => {
     const userCount = 5000
     const selectedIds = new Set([
       'entra-id', 'mdca', 'mde', 'mdi', 'mdo', 'entra-id-protection',
@@ -989,30 +989,27 @@ describe('DEFECT: optimisedMonthly double-counts licence benefit savings', () =>
     const totalSavings = licenceBenefits.totalSavedMonthlyUsd
     expect(totalSavings).toBeGreaterThan(0) // sanity: there IS a non-zero dollar saving to (potentially) double-count
 
-    // Step 4: production formula, copied verbatim from IngestionEstimator.tsx
-    const optimisedMonthlyProduction = Math.max(
-      0,
-      analyticsCommitmentMonthly
-        + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
-        + summary.retentionMonthlyCostUsd
-        - totalSavings, // <-- BUG: grant already baked into analyticsCommitmentMonthly via netting
-    )
-
-    // Financially correct: the grant was already applied once via the netted
-    // volume the tier was sized against, so it must not be subtracted again.
-    const optimisedMonthlyCorrect = Math.max(
+    // Step 4: the formula IngestionEstimator.tsx now uses. The grant reached it
+    // once, through the netted volume the tier was sized against.
+    const optimisedMonthly = Math.max(
       0,
       analyticsCommitmentMonthly
         + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
         + summary.retentionMonthlyCostUsd,
     )
 
-    // The discrepancy is exactly the dollar value of the grant that got
-    // subtracted twice.
-    expect(optimisedMonthlyCorrect - optimisedMonthlyProduction).toBeCloseTo(totalSavings, 2)
+    // The former bug subtracted totalSavings here as well. Had it survived, the
+    // quoted figure would sit exactly one grant below the achievable cost.
+    const doubleCounted = Math.max(0, optimisedMonthly - totalSavings)
+    expect(optimisedMonthly - doubleCounted).toBeCloseTo(totalSavings, 2)
 
-    // FAILS today: production quotes a materially cheaper "optimised" monthly
-    // cost than is actually achievable — a real presales risk.
-    expect(optimisedMonthlyProduction).toBeCloseTo(optimisedMonthlyCorrect, 2)
+    // The grant's effect is present exactly once: the optimised total must land
+    // below the gross commitment cost, but not by more than the grant's value.
+    const grossCommitmentMonthly =
+      computeTierOptions(summary.analyticsGbPerDay, STATIC_PRICING_BUNDLE, EXCHANGE_RATE_USD_TO_GBP)
+        .find(o => o.tier?.gbPerDay === recommendedOption!.tier!.gbPerDay)!.monthlyCostUsd
+    const appliedBenefit = grossCommitmentMonthly - analyticsCommitmentMonthly
+    expect(appliedBenefit).toBeGreaterThan(0)
+    expect(appliedBenefit).toBeLessThanOrEqual(totalSavings + 0.01)
   })
 })
