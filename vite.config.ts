@@ -1,4 +1,6 @@
-import { defineConfig } from 'vite'
+// defineConfig comes from vitest/config, not vite, so the `test` block below is
+// typed. Importing it from vite made that key an unchecked excess property.
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({

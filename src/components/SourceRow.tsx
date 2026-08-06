@@ -107,11 +107,6 @@ export function SourceRow({
                   Free
                 </span>
               )}
-              {source.coveredByDefenderXdr && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-light font-medium">
-                  XDR covered
-                </span>
-              )}
               {logTier === 'analytics' && retentionStrategy === 'analytics-extended' && (
                 <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary font-medium">Extended</span>
               )}

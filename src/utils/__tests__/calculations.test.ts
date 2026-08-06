@@ -23,7 +23,7 @@ import { interpolateRange, getSizeMultiplier } from '../../data/tshirtSizes'
 import { SERVER_WORKLOADS } from '../../data/serverWorkloads'
 import { computeServerWorkloadRows } from '../serverWorkloads'
 import { round2 } from '../round'
-import { LOG_TIER_DEFINITIONS } from '../../data/logTiers'
+import { LOG_TIER_DEFINITIONS, type LogTierKey } from '../../data/logTiers'
 import {
   STATIC_PRICING_BUNDLE,
   DAYS_PER_MONTH,
@@ -525,7 +525,6 @@ describe('computeServerWorkloadRows', () => {
       {},
       {},
       STATIC_PRICING_BUNDLE,
-      0.79,
     )
     expect(rows).toHaveLength(1)
     expect(rows[0].gbPerDay).toBeCloseTo(10.0, 2)
@@ -542,7 +541,6 @@ describe('computeServerWorkloadRows', () => {
       {},
       {},
       STATIC_PRICING_BUNDLE,
-      0.79,
     )
     expect(rows).toHaveLength(0)
   })
@@ -557,7 +555,6 @@ describe('computeServerWorkloadRows', () => {
       {},
       {},
       STATIC_PRICING_BUNDLE,
-      0.79,
     )
     const mRows = makeRows('M')
     const lRows = makeRows('L')
@@ -574,7 +571,6 @@ describe('computeServerWorkloadRows', () => {
       {},
       {},
       STATIC_PRICING_BUNDLE,
-      0.79,
     )
     expect(rows[0].source.p2Eligible).toBe(true)
   })
@@ -589,7 +585,6 @@ describe('computeServerWorkloadRows', () => {
       {},
       {},
       STATIC_PRICING_BUNDLE,
-      0.79,
     )
     expect(rows[0].source.p2Eligible).toBe(false)
   })
@@ -604,7 +599,6 @@ describe('computeServerWorkloadRows', () => {
       {},
       {},
       STATIC_PRICING_BUNDLE,
-      0.79,
     )
     const commonRows = makeRows('common')
     const allRows = makeRows('all')
@@ -621,7 +615,6 @@ describe('computeServerWorkloadRows', () => {
       {},
       {},
       STATIC_PRICING_BUNDLE,
-      0.79,
     )
     expect(rows[0].logTier).toBe('analytics')
   })
@@ -634,7 +627,7 @@ describe('computeServerWorkloadRows', () => {
 describe('summariseIngestion', () => {
   const defaultUserCount = 1000
   const emptyDeviceCounts: Record<string, number> = {}
-  const emptyLogTiers: Record<string, string> = {}
+  const emptyLogTiers: Record<string, LogTierKey> = {}
   const emptyRetentionDays: Record<string, number> = {}
 
   describe('empty selectedIds', () => {
@@ -818,8 +811,8 @@ describe('summariseIngestion', () => {
 //    summariseIngestion's retention cost does NOT follow it.
 // ---------------------------------------------------------------------------
 
-describe('DEFECT: retention free-window hardcoded to 90, decoupled from logTiers.ts', () => {
-  it.fails('changing analytics freeRetentionDays in logTiers.ts does not change the retention cost calculated by summariseIngestion', () => {
+describe('retention free-window is read from logTiers.ts, not hardcoded', () => {
+  it('changing analytics freeRetentionDays changes the retention cost summariseIngestion computes', () => {
     const analyticsDef = LOG_TIER_DEFINITIONS.find(d => d.key === 'analytics')!
     const originalFreeRetentionDays = analyticsDef.freeRetentionDays
     expect(originalFreeRetentionDays).toBe(90) // sanity: today's real value
@@ -865,13 +858,18 @@ describe('DEFECT: retention free-window hardcoded to 90, decoupled from logTiers
           STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
       )
 
-      // Sanity check on our own arithmetic: the corrected window is longer than
-      // the hardcoded one, so the correct cost must exceed what production returns.
+      // Shortening the free window lengthens the billable period, so the cost
+      // must be strictly higher than it would be under the original 90 days.
+      const costUnderOriginalWindow = round2(
+        (row.gbPerDay / DATA_LAKE_COMPRESSION_RATIO) *
+          (200 - originalFreeRetentionDays) *
+          STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
+      )
       expect(correctExtraDays).toBeGreaterThan(200 - originalFreeRetentionDays)
-      expect(correctRetentionCost).toBeGreaterThan(row.retentionMonthlyCostUsd)
+      expect(correctRetentionCost).toBeGreaterThan(costUnderOriginalWindow)
 
-      // FAILS today: production still subtracts a hardcoded 90 rather than the
-      // now-changed tier definition, so it under-reports the retention cost.
+      // The point of the test: production follows the tier definition rather
+      // than a hardcoded 90.
       expect(row.retentionMonthlyCostUsd).toBeCloseTo(correctRetentionCost, 2)
     } finally {
       // Always restore the shared module singleton, regardless of pass/fail,
@@ -882,58 +880,58 @@ describe('DEFECT: retention free-window hardcoded to 90, decoupled from logTiers
 })
 
 // ---------------------------------------------------------------------------
-// 9. DEFECT: no negative/NaN input guarding in the calculation layer.
+// 9. The calculation layer rejects negative and NaN input.
 //
-//    SourceRow.tsx clamps user keystrokes with Math.max(0, parsed) and
-//    isNaN() checks before calling onManualGbChange/onDeviceCountChange, but
-//    the underlying pure functions (estimateSourceGbPerDay,
-//    summariseIngestion) apply NO validation of their own. Any caller that
-//    is not that one React input handler — a saved/shared URL state, a
-//    future preset, a bug elsewhere in the app, or a test/story — can feed
-//    negative or NaN volumes straight into the maths, and the totals shown
-//    to a customer become negative or NaN with no floor/guard.
+//    SourceRow.tsx clamps user keystrokes, but the pure functions are reachable
+//    from anywhere — a shared URL, a preset, a future embed. They must defend
+//    themselves rather than trusting one React input handler to have done it.
 // ---------------------------------------------------------------------------
 
-describe('DEFECT: negative and NaN inputs are not rejected by the calculation layer', () => {
+describe('negative and NaN inputs are rejected by the calculation layer', () => {
   const customAppSource = LOG_SOURCES.find(s => s.id === 'custom-app')!
 
-  it.fails('estimateSourceGbPerDay returns a NEGATIVE gbPerDay for a negative manual GB value (should be rejected/clamped to 0)', () => {
+  it('clamps a negative manual GB value to zero', () => {
     const gbPerDay = estimateSourceGbPerDay(customAppSource, 1000, undefined, undefined, -50)
     // A negative daily ingestion volume is physically meaningless.
-    expect(gbPerDay).toBeGreaterThanOrEqual(0)
+    expect(gbPerDay).toBe(0)
   })
 
-  it.fails('summariseIngestion produces a NEGATIVE totalDailyCostUsd when a manual GB value is negative (should floor at 0)', () => {
+  it('never produces a negative total from a negative manual GB value', () => {
     const summary = summariseIngestion(
       new Set(['custom-app']),
       1000, {}, {}, {}, {}, {},
       { 'custom-app': -50 },
-      STATIC_PRICING_BUNDLE, 0.79,
+      STATIC_PRICING_BUNDLE, EXCHANGE_RATE_USD_TO_GBP,
     )
-    // -50 GB/day * $5.20/GB = -$260/day silently ends up subtracted from the
-    // customer's total cost. A cost calculator must never show a negative bill.
+    // Unguarded, -50 GB/day would have been billed as a negative amount and
+    // silently subtracted from the customer's total.
     expect(summary.totalDailyCostUsd).toBeGreaterThanOrEqual(0)
     expect(summary.totalGbPerDay).toBeGreaterThanOrEqual(0)
   })
 
-  it.fails('summariseIngestion produces NaN totals (not £0/$0) when a manual GB value is NaN', () => {
+  it('degrades a NaN manual GB value to zero rather than contaminating totals', () => {
     const summary = summariseIngestion(
       new Set(['custom-app']),
       1000, {}, {}, {}, {}, {},
       { 'custom-app': NaN },
-      STATIC_PRICING_BUNDLE, 0.79,
+      STATIC_PRICING_BUNDLE, EXCHANGE_RATE_USD_TO_GBP,
     )
-    // Per the audit brief: "0 GB ingestion should show £0/$0, not NaN or
-    // errors." An invalid (NaN) input should degrade to a safe default, not
-    // contaminate every downstream aggregate.
     expect(Number.isFinite(summary.totalDailyCostUsd)).toBe(true)
     expect(Number.isFinite(summary.totalGbPerDay)).toBe(true)
+    expect(summary.totalDailyCostUsd).toBe(0)
   })
 
-  it.fails('estimateSourceGbPerDay returns a NEGATIVE gbPerDay for a negative device count (device-scaled source)', () => {
+  it('falls back to the default count for a negative device count', () => {
     const keyVaultSource = LOG_SOURCES.find(s => s.id === 'key-vault')!
     const gbPerDay = estimateSourceGbPerDay(keyVaultSource, 1000, -5)
     expect(gbPerDay).toBeGreaterThanOrEqual(0)
+  })
+
+  it('never produces a negative licence allowance from a negative user or server count', () => {
+    const result = computeLicenceBenefits([], 0, 'e5', -500, true, -10)
+    expect(result.e5AllowanceGbPerDay).toBeGreaterThanOrEqual(0)
+    expect(result.defenderServersAllowanceGbPerDay).toBeGreaterThanOrEqual(0)
+    expect(result.billableAnalyticsGbPerDay).toBeGreaterThanOrEqual(0)
   })
 })
 

@@ -1,8 +1,9 @@
 import { ServerWorkload } from '../data/serverWorkloads'
 import { TshirtSize, getSizeMultiplier, interpolateRange } from '../data/tshirtSizes'
 import { LogTierKey, getTierDefinition } from '../data/logTiers'
-import { PricingBundle, LogSourceGroup, DATA_LAKE_COMPRESSION_RATIO } from '../data/pricing'
-import { SourceEstimateRow } from './ingestion'
+import { PricingBundle, LogSourceGroup, RetentionStrategy } from '../data/pricing'
+import { getDefaultTier } from '../data/tierPlacement'
+import { SourceEstimateRow, retentionCostUsd } from './ingestion'
 import { round2 } from './round'
 
 export function computeServerWorkloadRows(
@@ -14,10 +15,8 @@ export function computeServerWorkloadRows(
   logTiers: Record<string, LogTierKey>,
   retentionDays: Record<string, number>,
   pricing: PricingBundle,
-  fxRate: number,
+  retentionStrategies: Record<string, RetentionStrategy> = {},
 ): SourceEstimateRow[] {
-  void fxRate  // reserved for future per-region display
-
   const rows: SourceEstimateRow[] = []
 
   for (const workload of workloads) {
@@ -39,25 +38,29 @@ export function computeServerWorkloadRows(
     )
     const gbPerDay = round2(gbPerServerPerDay * count)
 
-    // Log tier
-    const logTier: LogTierKey = (logTiers[workload.id] as LogTierKey | undefined) ?? 'analytics'
+    // Log tier. Falls back to the placement recommendation rather than always
+    // Analytics, so ws-print and lx-general land on Data Lake as tierPlacement.ts
+    // intends. Those recommendations previously could never take effect.
+    const recommended = getDefaultTier(workload.id)
+    const logTier: LogTierKey =
+      (logTiers[workload.id] as LogTierKey | undefined) ??
+      (recommended === 'data-lake' ? 'data-lake' : 'analytics')
     const tierDef = getTierDefinition(logTier)
 
     // Daily cost
     const logTierRate = logTier === 'data-lake' ? pricing.dataLakeRateUsd : pricing.paygRateUsd
     const dailyCostUsd = round2(gbPerDay * logTierRate)
 
-    // Retention
+    // Retention — shares summariseIngestion's implementation so the two cannot
+    // drift apart, and so the free window comes from the tier definition.
     const selectedRetention = retentionDays[workload.id] ?? tierDef.freeRetentionDays
-    let retentionMonthlyCostUsd = 0
-    if (logTier === 'data-lake') {
-      const extraDays = Math.max(0, selectedRetention - tierDef.freeRetentionDays)
-      retentionMonthlyCostUsd = round2((gbPerDay / DATA_LAKE_COMPRESSION_RATIO) * extraDays * pricing.dataLakeRetentionRateUsd)
-    } else {
-      // analytics-tier with data-lake-mirror strategy (default)
-      const extraDays = Math.max(0, selectedRetention - 90)
-      retentionMonthlyCostUsd = round2((gbPerDay / DATA_LAKE_COMPRESSION_RATIO) * extraDays * pricing.dataLakeRetentionRateUsd)
-    }
+    const strategy: RetentionStrategy =
+      logTier === 'data-lake'
+        ? 'data-lake-mirror'
+        : (retentionStrategies[workload.id] ?? 'data-lake-mirror')
+    const retentionMonthlyCostUsd = retentionCostUsd(
+      gbPerDay, selectedRetention, logTier, strategy, pricing,
+    )
 
     rows.push({
       source: {
@@ -70,7 +73,7 @@ export function computeServerWorkloadRows(
       },
       gbPerDay,
       logTier,
-      retentionStrategy: 'data-lake-mirror',
+      retentionStrategy: strategy,
       dailyCostUsd,
       retentionDays: selectedRetention,
       retentionMonthlyCostUsd,

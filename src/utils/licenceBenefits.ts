@@ -5,7 +5,7 @@ import {
   E5_QUALIFYING_LICENCES,
   DEFENDER_SERVERS_FREE_GB_PER_SERVER_PER_DAY,
 } from '../data/licenceBenefits'
-import { SourceEstimateRow } from './ingestion'
+import { SourceEstimateRow, sanitiseQuantity } from './ingestion'
 import { round2 } from './round'
 import {
   DAYS_PER_MONTH,
@@ -64,7 +64,9 @@ export function computeLicenceBenefits(
       .reduce((s, r) => s + r.gbPerDay, 0),
   )
 
-  const e5AllowanceGbPerDay = round2(userCount * E5_DATA_GRANT_GB_PER_USER_PER_DAY)
+  // A negative or NaN count would produce a negative allowance, which would
+  // inflate billable volume rather than reduce it.
+  const e5AllowanceGbPerDay = round2(sanitiseQuantity(userCount) * E5_DATA_GRANT_GB_PER_USER_PER_DAY)
 
   const e5GrantGbPerDay = e5IsActive
     ? round2(Math.min(e5AllowanceGbPerDay, e5EligibleAnalyticsGbPerDay))
@@ -86,7 +88,7 @@ export function computeLicenceBenefits(
   )
 
   const defenderServersAllowanceGbPerDay = round2(
-    totalEnrolledServers * DEFENDER_SERVERS_FREE_GB_PER_SERVER_PER_DAY,
+    sanitiseQuantity(totalEnrolledServers) * DEFENDER_SERVERS_FREE_GB_PER_SERVER_PER_DAY,
   )
 
   const defenderServersGrantGbPerDay = defenderServersIsActive

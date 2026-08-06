@@ -82,8 +82,6 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const [serverCounts, setServerCounts] = useState<Record<string, number>>({})
   const [serverLevels, setServerLevels] = useState<Record<string, string>>({})
   const [serverSizeOverrides, setServerSizeOverrides] = useState<Record<string, TshirtSize>>({})
-  const [serverLogTiers] = useState<Record<string, LogTierKey>>({})
-  const [serverRetentionDays] = useState<Record<string, number>>({})
 
   // ── Compliance preset state ────────────────────────────────────────────
   const [activePresetId, setActivePresetId] = useState<CompliancePresetId>('custom')
@@ -107,16 +105,21 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   }
 
   // Compute server workload rows
+  // Server workloads share the log sources' tier, retention and strategy state.
+  // Their ids (ws-*, lx-*) never collide with LOG_SOURCES ids, so one record
+  // covers both — and the Tier Placement tab, which edits these, now actually
+  // moves a server workload between tiers instead of writing to state that
+  // nothing read.
   const serverRows = computeServerWorkloadRows(
     SERVER_WORKLOADS,
     serverCounts,
     serverLevels,
     serverSizeOverrides,
     globalSize,
-    serverLogTiers,
-    serverRetentionDays,
+    logTiers,
+    retentionDays,
     pricing,
-    fxRate,
+    retentionStrategies,
   )
 
   const summary = summariseIngestion(
