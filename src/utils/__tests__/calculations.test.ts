@@ -18,14 +18,16 @@ import { describe, it, expect } from 'vitest'
 import { fmtGbp } from '../currency'
 import { breakevenForTier, computeTierOptions } from '../tiers'
 import { computeLicenceBenefits } from '../licenceBenefits'
-import { summariseIngestion } from '../ingestion'
+import { summariseIngestion, estimateSourceGbPerDay } from '../ingestion'
 import { interpolateRange, getSizeMultiplier } from '../../data/tshirtSizes'
 import { SERVER_WORKLOADS } from '../../data/serverWorkloads'
 import { computeServerWorkloadRows } from '../serverWorkloads'
+import { LOG_TIER_DEFINITIONS } from '../../data/logTiers'
 import {
   STATIC_PRICING_BUNDLE,
   DAYS_PER_MONTH,
   COMMITMENT_TIERS,
+  LOG_SOURCES,
   type PricingBundle,
   type CommitmentTier,
 } from '../../data/pricing'
@@ -722,5 +724,218 @@ describe('summariseIngestion', () => {
 
       expect(summaryDoubled.totalDailyCostGbp).toBeCloseTo(summaryBase.totalDailyCostGbp * 2, 1)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 8. DEFECT: analytics free-window is hardcoded (90) in ingestion.ts instead
+//    of being read from logTiers.ts's tierDef.freeRetentionDays.
+//
+//    ingestion.ts lines ~130 and ~134 compute:
+//      const extraDays = Math.max(0, selectedRetention - 90)
+//    for BOTH the 'analytics-extended' and 'data-lake-mirror' strategies on
+//    the Analytics tier, while the Data Lake native path (line ~127) instead
+//    reads `tierDef.freeRetentionDays`. Today LOG_TIER_DEFINITIONS.analytics
+//    .freeRetentionDays is 90, so the two values coincide and nothing looks
+//    wrong. But the two calculations are NOT actually linked — if a future
+//    edit to src/data/logTiers.ts changes the Analytics free window (e.g. a
+//    Microsoft pricing change), retention costs silently go wrong with no
+//    compile-time or runtime signal.
+//
+//    This test proves the lack of coupling by mutating the already-loaded
+//    LOG_TIER_DEFINITIONS object in memory (simulating exactly the kind of
+//    edit someone would make to logTiers.ts) and showing that
+//    summariseIngestion's retention cost does NOT follow it.
+// ---------------------------------------------------------------------------
+
+describe('DEFECT: retention free-window hardcoded to 90, decoupled from logTiers.ts', () => {
+  it.fails('changing analytics freeRetentionDays in logTiers.ts does not change the retention cost calculated by summariseIngestion', () => {
+    const analyticsDef = LOG_TIER_DEFINITIONS.find(d => d.key === 'analytics')!
+    const originalFreeRetentionDays = analyticsDef.freeRetentionDays
+    expect(originalFreeRetentionDays).toBe(90) // sanity: today's real value
+
+    try {
+      // Simulate a future pricing update: Microsoft shortens the Analytics
+      // free retention window from 90 to 60 days.
+      analyticsDef.freeRetentionDays = 60
+
+      // entra-id at 1000 users, M-size (default 0.5 multiplier):
+      // gbPerDay = round2(interpolateRange(0.5, 3.0, 0.5) * 1) = round2(1.75) = 1.75
+      const summary = summariseIngestion(
+        new Set(['entra-id']),
+        1000,
+        {},
+        {},                          // logTiers → defaults to 'analytics'
+        { 'entra-id': 200 },          // force a retention selection of 200 days
+        {},                            // retentionStrategies → defaults to 'data-lake-mirror'
+        {},
+        {},
+        STATIC_PRICING_BUNDLE,
+        0.79,
+      )
+
+      const row = summary.rows.find(r => r.source.id === 'entra-id')!
+      expect(row.gbPerDay).toBeCloseTo(1.75, 2)
+
+      // What summariseIngestion ACTUALLY computes (hardcoded 90):
+      //   extraDays = 200 - 90 = 110
+      //   cost = round2((1.75/6) * 110 * 0.02) = 0.64
+      //
+      // What it SHOULD compute if it honoured the (now-updated) tier
+      // definition, matching the Data Lake native path's own pattern:
+      //   extraDays = 200 - tierDef.freeRetentionDays(60) = 140
+      //   cost = round2((1.75/6) * 140 * 0.02) = 0.82
+      const correctExtraDays = Math.max(0, 200 - analyticsDef.freeRetentionDays)
+      const correctRetentionCost =
+        Math.round(((row.gbPerDay / 6) * correctExtraDays * 0.02) * 100) / 100
+
+      expect(correctRetentionCost).toBeCloseTo(0.82, 2) // sanity check on our own arithmetic
+
+      // FAILS today: production code returns 0.64 (still using hardcoded 90),
+      // not 0.82 (what the now-changed tier definition says it should be).
+      expect(row.retentionMonthlyCostUsd).toBeCloseTo(correctRetentionCost, 2)
+    } finally {
+      // Always restore the shared module singleton, regardless of pass/fail,
+      // so this test cannot leak state into any other test in the suite.
+      analyticsDef.freeRetentionDays = originalFreeRetentionDays
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 9. DEFECT: no negative/NaN input guarding in the calculation layer.
+//
+//    SourceRow.tsx clamps user keystrokes with Math.max(0, parsed) and
+//    isNaN() checks before calling onManualGbChange/onDeviceCountChange, but
+//    the underlying pure functions (estimateSourceGbPerDay,
+//    summariseIngestion) apply NO validation of their own. Any caller that
+//    is not that one React input handler — a saved/shared URL state, a
+//    future preset, a bug elsewhere in the app, or a test/story — can feed
+//    negative or NaN volumes straight into the maths, and the totals shown
+//    to a customer become negative or NaN with no floor/guard.
+// ---------------------------------------------------------------------------
+
+describe('DEFECT: negative and NaN inputs are not rejected by the calculation layer', () => {
+  const customAppSource = LOG_SOURCES.find(s => s.id === 'custom-app')!
+
+  it.fails('estimateSourceGbPerDay returns a NEGATIVE gbPerDay for a negative manual GB value (should be rejected/clamped to 0)', () => {
+    const gbPerDay = estimateSourceGbPerDay(customAppSource, 1000, undefined, undefined, -50)
+    // A negative daily ingestion volume is physically meaningless.
+    expect(gbPerDay).toBeGreaterThanOrEqual(0)
+  })
+
+  it.fails('summariseIngestion produces a NEGATIVE totalDailyCostUsd when a manual GB value is negative (should floor at 0)', () => {
+    const summary = summariseIngestion(
+      new Set(['custom-app']),
+      1000, {}, {}, {}, {}, {},
+      { 'custom-app': -50 },
+      STATIC_PRICING_BUNDLE, 0.79,
+    )
+    // -50 GB/day * $5.20/GB = -$260/day silently ends up subtracted from the
+    // customer's total cost. A cost calculator must never show a negative bill.
+    expect(summary.totalDailyCostUsd).toBeGreaterThanOrEqual(0)
+    expect(summary.totalGbPerDay).toBeGreaterThanOrEqual(0)
+  })
+
+  it.fails('summariseIngestion produces NaN totals (not £0/$0) when a manual GB value is NaN', () => {
+    const summary = summariseIngestion(
+      new Set(['custom-app']),
+      1000, {}, {}, {}, {}, {},
+      { 'custom-app': NaN },
+      STATIC_PRICING_BUNDLE, 0.79,
+    )
+    // Per the audit brief: "0 GB ingestion should show £0/$0, not NaN or
+    // errors." An invalid (NaN) input should degrade to a safe default, not
+    // contaminate every downstream aggregate.
+    expect(Number.isFinite(summary.totalDailyCostUsd)).toBe(true)
+    expect(Number.isFinite(summary.totalGbPerDay)).toBe(true)
+  })
+
+  it.fails('estimateSourceGbPerDay returns a NEGATIVE gbPerDay for a negative device count (device-scaled source)', () => {
+    const keyVaultSource = LOG_SOURCES.find(s => s.id === 'key-vault')!
+    const gbPerDay = estimateSourceGbPerDay(keyVaultSource, 1000, -5)
+    expect(gbPerDay).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 10. DEFECT: the "optimised" monthly total double-counts licence-benefit
+//     savings (E5 data grant / Defender for Servers P2 grant).
+//
+//     This reproduces the composition logic from
+//     IngestionEstimator.tsx (paygMonthly / optimisedMonthly), calling only
+//     the audited src/utils functions in the exact same order and with the
+//     exact same formula the component uses, to prove the defect lives in
+//     how the utils are *combined*, not in any single function:
+//
+//       commitmentOptions = computeTierOptions(licenceBenefits.billableAnalyticsGbPerDay, ...)
+//       analyticsCommitmentMonthly = recommendedOption.monthlyCostUsd
+//       optimisedMonthly = analyticsCommitmentMonthly + dataLake + retention - totalSavings
+//
+//     `billableAnalyticsGbPerDay` is ALREADY net of the E5/Defender grant
+//     (computeLicenceBenefits subtracts totalGrantGbPerDay before returning
+//     it), so `analyticsCommitmentMonthly` — being sized and priced against
+//     that netted volume — has ALREADY had the benefit applied once.
+//     Subtracting `totalSavings` (the dollar value of that same grant) a
+//     second time double-counts it, understating the customer's true
+//     optimised cost by the full dollar value of the grant every time a
+//     commitment tier is recommended.
+// ---------------------------------------------------------------------------
+
+describe('DEFECT: optimisedMonthly double-counts licence benefit savings', () => {
+  it.fails('subtracting totalSavedMonthlyUsd from a commitment-tier cost that was already sized on the net (post-grant) volume double-counts the E5 grant', () => {
+    const userCount = 5000
+    const selectedIds = new Set([
+      'entra-id', 'mdca', 'mde', 'mdi', 'mdo', 'entra-id-protection',
+      'o365-audit', 'intune', 'key-vault', 'vpn-ztna',
+    ])
+    const deviceCounts = { 'key-vault': 5 }
+
+    // Step 1: ingestion summary (same as IngestionEstimator.tsx)
+    const summary = summariseIngestion(
+      selectedIds, userCount, deviceCounts, {}, {}, {}, {}, {}, STATIC_PRICING_BUNDLE, 0.79,
+    )
+
+    // Step 2: licence benefits — this NETS the E5 grant out of billableAnalyticsGbPerDay
+    const licenceBenefits = computeLicenceBenefits(
+      summary.rows, summary.analyticsGbPerDay, 'e5', userCount, false, 0, STATIC_PRICING_BUNDLE,
+    )
+    expect(licenceBenefits.e5GrantGbPerDay).toBeGreaterThan(0) // sanity: grant is actually active
+    expect(licenceBenefits.billableAnalyticsGbPerDay).toBeLessThan(summary.analyticsGbPerDay) // sanity: netting happened
+
+    // Step 3: commitment tier is recommended against the ALREADY-NETTED volume
+    const commitmentOptions = computeTierOptions(licenceBenefits.billableAnalyticsGbPerDay, STATIC_PRICING_BUNDLE, 0.79)
+    const recommendedOption = commitmentOptions.find(o => o.isRecommended && !o.isPayg)
+    expect(recommendedOption).toBeDefined() // sanity: a commitment tier IS recommended at this volume
+
+    const analyticsCommitmentMonthly = recommendedOption!.monthlyCostUsd
+    const totalSavings = licenceBenefits.totalSavedMonthlyUsd
+    expect(totalSavings).toBeGreaterThan(0) // sanity: there IS a non-zero dollar saving to (potentially) double-count
+
+    // Step 4: production formula, copied verbatim from IngestionEstimator.tsx
+    const optimisedMonthlyProduction = Math.max(
+      0,
+      analyticsCommitmentMonthly
+        + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
+        + summary.retentionMonthlyCostUsd
+        - totalSavings, // <-- BUG: grant already baked into analyticsCommitmentMonthly via netting
+    )
+
+    // Financially correct: the grant was already applied once via the netted
+    // volume the tier was sized against, so it must not be subtracted again.
+    const optimisedMonthlyCorrect = Math.max(
+      0,
+      analyticsCommitmentMonthly
+        + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
+        + summary.retentionMonthlyCostUsd,
+    )
+
+    // The discrepancy is exactly the dollar value of the grant that got
+    // subtracted twice.
+    expect(optimisedMonthlyCorrect - optimisedMonthlyProduction).toBeCloseTo(totalSavings, 2)
+
+    // FAILS today: production quotes a materially cheaper "optimised" monthly
+    // cost than is actually achievable — a real presales risk.
+    expect(optimisedMonthlyProduction).toBeCloseTo(optimisedMonthlyCorrect, 2)
   })
 })
