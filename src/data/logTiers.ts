@@ -1,7 +1,7 @@
 import {
   PAYG_RATE_USD_PER_GB,
   DATA_LAKE_RATE_USD_PER_GB,
-  ANALYTICS_ARCHIVE_RATE_USD_PER_GB_PER_MONTH,
+  ANALYTICS_INTERACTIVE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
   DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
 } from './pricing'
 
@@ -34,7 +34,7 @@ export const LOG_TIER_DEFINITIONS: LogTierDefinition[] = [
     rateUsdPerGb: PAYG_RATE_USD_PER_GB,
     freeRetentionDays: 90,
     retentionOptions: [90, 180, 365, 730],
-    extendedRetentionRateUsdPerGbPerMonth: ANALYTICS_ARCHIVE_RATE_USD_PER_GB_PER_MONTH,
+    extendedRetentionRateUsdPerGbPerMonth: ANALYTICS_INTERACTIVE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
     kqlCapability: 'Full KQL — all tables, alerts, workbooks',
     commitmentTiersApply: true,
   },

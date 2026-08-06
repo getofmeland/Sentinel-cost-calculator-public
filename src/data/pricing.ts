@@ -1,15 +1,34 @@
-// Microsoft Sentinel pricing data — UK South, as of March 2026
-// Update this file when Microsoft publishes new rates.
+// Microsoft Sentinel pricing data — UK South, verified 6 August 2026.
+//
+// Every rate here was taken from the Azure Retail Prices API, not from a
+// pricing page or from memory:
+//
+//   https://prices.azure.com/api/retail/prices
+//     ?$filter=serviceName eq 'Sentinel' and armRegionName eq 'uksouth'
+//
+// Regional rates differ substantially — UK South runs roughly 1.25x the
+// East US base — so re-verify against the API when changing region focus
+// rather than scaling these values.
+//
+// This file is the only place a rate literal may appear. Everything else
+// imports from here.
 
 // Fallback exchange rates, used when the live FX fetch is unavailable.
 // The user can override either from the UI.
-export const EXCHANGE_RATE_USD_TO_GBP = 0.79
-export const EXCHANGE_RATE_USD_TO_EUR = 0.92
+export const EXCHANGE_RATE_USD_TO_GBP = 0.7425
+export const EXCHANGE_RATE_USD_TO_EUR = 0.8657
 
 // ─── Pay-As-You-Go ───────────────────────────────────────────────────────────
 
-/** Combined Log Analytics + Sentinel PAYG rate, USD per GB */
-export const PAYG_RATE_USD_PER_GB = 5.20
+/**
+ * Combined Log Analytics + Sentinel PAYG rate, USD per GB.
+ * Meter: Sentinel / "Pay-as-you-go Analysis", UK South.
+ *
+ * Under Microsoft's simplified pricing (effective 2023-07-01) this single
+ * meter covers both the Log Analytics and Sentinel charge, so the
+ * calculator does not add them separately.
+ */
+export const PAYG_RATE_USD_PER_GB = 5.38
 
 // ─── Commitment Tiers ────────────────────────────────────────────────────────
 
@@ -29,23 +48,82 @@ export interface CommitmentTier {
 /** Average days per month used for monthly cost calculations */
 export const DAYS_PER_MONTH = 30.44
 
-export const COMMITMENT_TIERS: CommitmentTier[] = [
-  { gbPerDay: 50,   dailyCostUsd: 50   * 3.80, effectiveRateUsd: 3.80, savingsVsPayg: 0.27, isPreviewPromo: true },
-  { gbPerDay: 100,  dailyCostUsd: 100  * 3.35, effectiveRateUsd: 3.35, savingsVsPayg: 0.36 },
-  { gbPerDay: 200,  dailyCostUsd: 200  * 3.15, effectiveRateUsd: 3.15, savingsVsPayg: 0.39 },
-  { gbPerDay: 500,  dailyCostUsd: 500  * 2.92, effectiveRateUsd: 2.92, savingsVsPayg: 0.44 },
-  { gbPerDay: 1000, dailyCostUsd: 1000 * 2.70, effectiveRateUsd: 2.70, savingsVsPayg: 0.48 },
-  { gbPerDay: 2000, dailyCostUsd: 2000 * 2.54, effectiveRateUsd: 2.54, savingsVsPayg: 0.51 },
-  { gbPerDay: 5000, dailyCostUsd: 5000 * 2.43, effectiveRateUsd: 2.43, savingsVsPayg: 0.53 },
+/**
+ * Committed GB/day and the published daily cost in USD, exactly as the retail
+ * API reports them (meter: "{n} GB Commitment Tier Capacity Reservation").
+ *
+ * Only these two numbers are authoritative. The effective per-GB rate and the
+ * saving against PAYG are derived below — previously they were hardcoded
+ * alongside, and drifted far enough that the file claimed a 53% saving when
+ * Microsoft's published maximum is 52%.
+ */
+const COMMITMENT_TIER_DAILY_COST_USD: Array<[gbPerDay: number, dailyCostUsd: number]> = [
+  [50, 201.5625],   // public preview promotion
+  [100, 370],
+  [200, 685],
+  [300, 1000],
+  [400, 1296.66],
+  [500, 1581.25],
+  [1000, 3100],
+  [2000, 6000],
+  [5000, 14437.5],
+  [10000, 27800],
+  [25000, 66812.5],
+  [50000, 128250],
 ]
+
+/** GB/day tiers sold as a time-limited preview promotion rather than standard rate card */
+const PREVIEW_PROMO_TIERS = new Set([50])
+
+export const COMMITMENT_TIERS: CommitmentTier[] = COMMITMENT_TIER_DAILY_COST_USD.map(
+  ([gbPerDay, dailyCostUsd]) => {
+    const effectiveRateUsd = dailyCostUsd / gbPerDay
+    return {
+      gbPerDay,
+      dailyCostUsd,
+      effectiveRateUsd,
+      savingsVsPayg: 1 - effectiveRateUsd / PAYG_RATE_USD_PER_GB,
+      isPreviewPromo: PREVIEW_PROMO_TIERS.has(gbPerDay) ? true : undefined,
+    }
+  },
+)
 
 // ─── Data Lake Pricing ───────────────────────────────────────────────────────
 
-export const DATA_LAKE_RATE_USD_PER_GB = 0.15
-export const DATA_LAKE_COMPRESSION_RATIO = 6           // 6:1 compression for retention billing
-export const DATA_LAKE_QUERY_RATE_USD_PER_GB = 0.005   // per GB scanned (uncompressed)
-export const ANALYTICS_ARCHIVE_RATE_USD_PER_GB_PER_MONTH = 0.023
-export const DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH = 0.02
+/**
+ * Total USD per GB ingested into the Data Lake tier.
+ * Microsoft bills this as two separate meters that both apply:
+ *   Sentinel / "Data lake ingestion Data Processed"  $0.0625
+ *   Sentinel / "Data processing Data Processed"      $0.125
+ * Reading only the first understates lake ingestion threefold.
+ */
+export const DATA_LAKE_RATE_USD_PER_GB = 0.0625 + 0.125
+
+export const DATA_LAKE_COMPRESSION_RATIO = 6              // 6:1 compression for retention billing
+
+/** Meter: Sentinel / "Data lake query Data Analyzed" — per GB scanned (uncompressed) */
+export const DATA_LAKE_QUERY_RATE_USD_PER_GB = 0.00625
+
+/**
+ * Extending Analytics *interactive* retention beyond the free 90 days.
+ * Meter: Log Analytics / "Analytics Logs Data Retention".
+ *
+ * This is the rate the calculator's "Analytics Extended Retention" strategy
+ * needs — that strategy keeps full KQL against the data, so it is interactive
+ * retention, not archive. The two were previously conflated at the archive
+ * rate, understating two-year retention costs by more than fivefold.
+ */
+export const ANALYTICS_INTERACTIVE_RETENTION_RATE_USD_PER_GB_PER_MONTH = 0.13
+
+/**
+ * Archive (non-interactive) retention. Meter: Azure Monitor / "Data Archive".
+ * Kept distinct so the two can never silently collapse into one another again.
+ * Not currently used by any retention strategy.
+ */
+export const ANALYTICS_ARCHIVE_RATE_USD_PER_GB_PER_MONTH = 0.025
+
+/** Meter: Sentinel / "Data lake storage Data Stored" */
+export const DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH = 0.024
 
 // ─── Retention Strategy ───────────────────────────────────────────────────────
 
@@ -56,7 +134,7 @@ export const RETENTION_STRATEGIES = {
     id: 'analytics-extended' as RetentionStrategy,
     label: 'Analytics Extended Retention',
     description: 'Full KQL performance. Higher cost.',
-    ratePerGbMonth: 0.023,
+    ratePerGbMonth: ANALYTICS_INTERACTIVE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
     compressionRatio: 1,
     maxYears: 2,
     queryIncluded: true,
@@ -64,12 +142,14 @@ export const RETENTION_STRATEGIES = {
   dataLakeMirror: {
     id: 'data-lake-mirror' as RetentionStrategy,
     label: 'Mirror to Data Lake',
-    description: '6:1 compression. Slower queries. ~85% cheaper.',
-    ratePerGbMonth: 0.02,
-    compressionRatio: 6,
+    // 6:1 compression means $0.024/GB/month bills as $0.004 per raw GB,
+    // against $0.13 for interactive retention — roughly 97% cheaper.
+    description: '6:1 compression. Slower queries. ~97% cheaper.',
+    ratePerGbMonth: DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
+    compressionRatio: DATA_LAKE_COMPRESSION_RATIO,
     maxYears: 12,
     queryIncluded: false,
-    queryCostPerGb: 0.005,
+    queryCostPerGb: DATA_LAKE_QUERY_RATE_USD_PER_GB,
   },
 } as const
 
@@ -390,7 +470,7 @@ export const STATIC_PRICING_BUNDLE: PricingBundle = {
   paygRateUsd: PAYG_RATE_USD_PER_GB,
   commitmentTiers: COMMITMENT_TIERS,
   dataLakeRateUsd: DATA_LAKE_RATE_USD_PER_GB,
-  analyticsExtendedRetentionRateUsd: ANALYTICS_ARCHIVE_RATE_USD_PER_GB_PER_MONTH,
+  analyticsExtendedRetentionRateUsd: ANALYTICS_INTERACTIVE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
   dataLakeRetentionRateUsd: DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
   dataLakeQueryRateUsd: DATA_LAKE_QUERY_RATE_USD_PER_GB,
 }

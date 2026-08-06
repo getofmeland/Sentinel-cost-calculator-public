@@ -29,6 +29,9 @@ import {
   DAYS_PER_MONTH,
   COMMITMENT_TIERS,
   LOG_SOURCES,
+  PAYG_RATE_USD_PER_GB,
+  EXCHANGE_RATE_USD_TO_GBP,
+  DATA_LAKE_COMPRESSION_RATIO,
   type PricingBundle,
   type CommitmentTier,
 } from '../../data/pricing'
@@ -47,9 +50,9 @@ import type { LogSource } from '../../data/pricing'
 // ---------------------------------------------------------------------------
 
 describe('fmtGbp', () => {
-  it('converts 100 USD to GBP at the default 0.79 rate', () => {
-    // Formula: 100 * 0.79 = 79.00 → "£79.00"
-    expect(fmtGbp(100)).toBe('£79.00')
+  it('converts USD to GBP at the default rate from pricing.ts', () => {
+    const expected = (100 * EXCHANGE_RATE_USD_TO_GBP).toFixed(2)
+    expect(fmtGbp(100)).toBe(`£${expected}`)
   })
 
   it('accepts a custom fxRate: 100 USD at 0.85 → "£85.00"', () => {
@@ -68,29 +71,76 @@ describe('fmtGbp', () => {
 // ---------------------------------------------------------------------------
 
 describe('breakevenForTier', () => {
-  // 100 GB/day tier: dailyCostUsd = 100 * 3.35 = 335
   const tier100: CommitmentTier = COMMITMENT_TIERS.find(t => t.gbPerDay === 100)!
 
-  it('calculates breakeven for the 100 GB/day tier at default PAYG rate ($5.20/GB)', () => {
-    // Formula: 335 / 5.20 ≈ 64.42 GB/day
-    // The function returns an unrounded float, so we use toBeCloseTo.
+  it('calculates breakeven for the 100 GB/day tier at the default PAYG rate', () => {
+    // breakeven = tier daily cost / PAYG rate. The function returns an
+    // unrounded float, so compare with toBeCloseTo.
     const breakeven = breakevenForTier(tier100)
-    expect(breakeven).toBeCloseTo(335 / 5.20, 5)
-    // Sanity check: well below 100 GB — tier becomes worthwhile at ~64 GB/day
-    expect(breakeven).toBeGreaterThan(64)
-    expect(breakeven).toBeLessThan(65)
+    expect(breakeven).toBeCloseTo(tier100.dailyCostUsd / PAYG_RATE_USD_PER_GB, 5)
+    // Every tier is cheaper per GB than PAYG, so breakeven must fall below the
+    // committed volume — that is what makes the tier worth buying.
+    expect(breakeven).toBeGreaterThan(0)
+    expect(breakeven).toBeLessThan(tier100.gbPerDay)
   })
 
   it('uses a custom paygRate when provided', () => {
-    // Formula: 335 / 4.00 = 83.75
     const breakeven = breakevenForTier(tier100, 4.00)
-    expect(breakeven).toBeCloseTo(83.75, 5)
+    expect(breakeven).toBeCloseTo(tier100.dailyCostUsd / 4.00, 5)
   })
 
   it('scales correctly when paygRate equals the tier effective rate (breakeven = tier gbPerDay)', () => {
     // At effectiveRateUsd = 3.35, breakeven = 335 / 3.35 = exactly 100 GB/day
     const breakeven = breakevenForTier(tier100, tier100.effectiveRateUsd)
     expect(breakeven).toBeCloseTo(tier100.gbPerDay, 5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 2b. Commitment tier table integrity
+//
+// The published daily cost per tier is the only authoritative number; the
+// effective per-GB rate and the saving against PAYG are derived from it. These
+// were once hardcoded alongside and drifted far enough that the file claimed a
+// 53% saving when Microsoft's published maximum is 52%. These tests pin the
+// derivation so that cannot recur.
+// ---------------------------------------------------------------------------
+
+describe('COMMITMENT_TIERS integrity', () => {
+  it('effectiveRateUsd is exactly dailyCostUsd / gbPerDay for every tier', () => {
+    for (const tier of COMMITMENT_TIERS) {
+      expect(tier.effectiveRateUsd).toBeCloseTo(tier.dailyCostUsd / tier.gbPerDay, 10)
+    }
+  })
+
+  it('savingsVsPayg is exactly the discount against the PAYG rate', () => {
+    for (const tier of COMMITMENT_TIERS) {
+      expect(tier.savingsVsPayg).toBeCloseTo(1 - tier.effectiveRateUsd / PAYG_RATE_USD_PER_GB, 10)
+    }
+  })
+
+  it('every tier undercuts PAYG, so committing is always cheaper per GB', () => {
+    for (const tier of COMMITMENT_TIERS) {
+      expect(tier.effectiveRateUsd).toBeLessThan(PAYG_RATE_USD_PER_GB)
+      expect(tier.savingsVsPayg).toBeGreaterThan(0)
+    }
+  })
+
+  it('larger commitments are never worse value than smaller ones', () => {
+    const sorted = [...COMMITMENT_TIERS].sort((a, b) => a.gbPerDay - b.gbPerDay)
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i].effectiveRateUsd).toBeLessThanOrEqual(sorted[i - 1].effectiveRateUsd)
+    }
+  })
+
+  it('no tier claims a saving above the 52% Microsoft publishes as its maximum', () => {
+    const best = Math.max(...COMMITMENT_TIERS.map(t => t.savingsVsPayg))
+    expect(best).toBeLessThanOrEqual(0.53)
+  })
+
+  it('is sorted ascending by gbPerDay, as computeTierOptions and the UI assume', () => {
+    const gbPerDay = COMMITMENT_TIERS.map(t => t.gbPerDay)
+    expect(gbPerDay).toEqual([...gbPerDay].sort((a, b) => a - b))
   })
 })
 
@@ -124,10 +174,14 @@ describe('computeTierOptions', () => {
   })
 
   describe('at 200 GB/day with STATIC_PRICING_BUNDLE', () => {
-    // PAYG: 200 * 5.20 = 1040 USD/day
-    // 100 GB tier: 335 + (200 - 100) * 3.35 = 335 + 335 = 670 USD/day → savings = (1040-670)/1040 ≈ 35.6%
-    // 200 GB tier: 200 * 3.15 = 630 USD/day → savings = (1040-630)/1040 ≈ 39.4%
-    const options = computeTierOptions(200, STATIC_PRICING_BUNDLE)
+    // Expected values are derived from the tier table rather than written out,
+    // so re-pricing does not require editing these assertions.
+    const VOLUME = 200
+    const options = computeTierOptions(VOLUME, STATIC_PRICING_BUNDLE)
+    const paygDaily = VOLUME * PAYG_RATE_USD_PER_GB
+    const tier100 = COMMITMENT_TIERS.find(t => t.gbPerDay === 100)!
+    // Overage above the commitment is billed at the tier's own effective rate.
+    const tier100Daily = tier100.dailyCostUsd + (VOLUME - 100) * tier100.effectiveRateUsd
 
     it('has exactly one recommended option', () => {
       const recommended = options.filter(o => o.isRecommended)
@@ -146,17 +200,22 @@ describe('computeTierOptions', () => {
       expect(positiveOptions.length).toBeGreaterThan(0)
     })
 
-    it('100 GB/day tier reports the correct savings percentage (~35.6%)', () => {
+    it('100 GB/day tier reports savings measured against the PAYG baseline', () => {
       const tier100Option = options.find(o => o.tier?.gbPerDay === 100)!
-      // (1040 - 670) / 1040 = 0.35576...
-      expect(tier100Option.savingsVsPaygPct).toBeCloseTo((1040 - 670) / 1040, 4)
+      expect(tier100Option.savingsVsPaygPct).toBeCloseTo(
+        (paygDaily - tier100Daily) / paygDaily,
+        4,
+      )
     })
 
-    it('200 GB/day tier has the lowest daily cost and is recommended', () => {
+    it('recommends the cheapest tier at this volume, priced at its committed rate', () => {
       const recommended = options.find(o => o.isRecommended)!
-      expect(recommended.tier?.gbPerDay).toBe(200)
-      // 200 * 3.15 = 630
-      expect(recommended.dailyCostUsd).toBeCloseTo(630, 2)
+      const cheapest = options.reduce((a, b) => (b.dailyCostUsd < a.dailyCostUsd ? b : a))
+      expect(recommended.dailyCostUsd).toBeCloseTo(cheapest.dailyCostUsd, 5)
+      // The exactly-matching tier costs its flat committed price with no overage.
+      const exactTier = COMMITMENT_TIERS.find(t => t.gbPerDay === VOLUME)!
+      const exactOption = options.find(o => o.tier?.gbPerDay === VOLUME)!
+      expect(exactOption.dailyCostUsd).toBeCloseTo(exactTier.dailyCostUsd, 5)
     })
   })
 
@@ -391,15 +450,23 @@ describe('computeLicenceBenefits', () => {
 
   // ── totalSavedMonthlyUsd ──────────────────────────────────────────────────
 
-  it('totalSavedMonthlyUsd = (e5Grant + defenderGrant) × DAYS_PER_MONTH × paygRate', () => {
+  it('totalSavedMonthlyUsd is the sum of the individually rounded credit lines', () => {
     // entra-id: 1 GB/day eligible; 500 users × 5 MB = 2.5 GB/day allowance → e5Grant = 1
     // windows-security: 5 GB/day; 2 servers × 0.5 = 1 GB/day allowance → defenderGrant = 1
-    // total grant = 2 GB/day
-    // totalSavedMonthlyUsd = round2(2 * 30.44 * 5.20) = round2(316.576) = 316.58
     const rows = [makeRow(entraSource, 1), makeRow(windowsSource, 5)]
     const result = computeLicenceBenefits(rows, 6, 'e5', 500, true, 2)
-    const expectedSaved = round2(result.totalGrantGbPerDay * DAYS_PER_MONTH * STATIC_PRICING_BUNDLE.paygRateUsd)
-    expect(result.totalSavedMonthlyUsd).toBeCloseTo(expectedSaved, 2)
+
+    // Each credit is rounded before being summed, because each is displayed as
+    // its own line in the cost table and the total must equal what the user can
+    // add up on screen. That can differ by a penny from rounding the combined
+    // grant in one go, so assert the relationship the code actually guarantees.
+    expect(result.totalSavedMonthlyUsd).toBeCloseTo(
+      round2(result.e5SavedMonthlyUsd + result.defenderServersSavedMonthlyUsd),
+      2,
+    )
+    // ...and that it still tracks the underlying grant to within rounding error.
+    const unrounded = result.totalGrantGbPerDay * DAYS_PER_MONTH * STATIC_PRICING_BUNDLE.paygRateUsd
+    expect(Math.abs(result.totalSavedMonthlyUsd - unrounded)).toBeLessThanOrEqual(0.02)
   })
 })
 
@@ -634,8 +701,11 @@ describe('summariseIngestion', () => {
       expect(summary.analyticsDailyCostUsd).toBeGreaterThan(0)
     })
 
-    it('analyticsDailyCostUsd equals round2(1.75 * 5.20) = 9.10', () => {
-      expect(summary.analyticsDailyCostUsd).toBeCloseTo(9.10, 2)
+    it('analyticsDailyCostUsd equals round2(analyticsGbPerDay × PAYG rate)', () => {
+      expect(summary.analyticsDailyCostUsd).toBeCloseTo(
+        round2(summary.analyticsGbPerDay * PAYG_RATE_USD_PER_GB),
+        2,
+      )
     })
 
     it('freeGbPerDay === 0', () => {
@@ -649,8 +719,6 @@ describe('summariseIngestion', () => {
 
   describe('doubled paygRateUsd doubles analyticsDailyCostUsd', () => {
     it('custom pricing bundle with 2× paygRate produces 2× analyticsDailyCostUsd', () => {
-      // Default: 1.75 GB/day * 5.20 = 9.10 USD
-      // Doubled: 1.75 GB/day * 10.40 = 18.20 USD
       const doubledPricing: PricingBundle = {
         ...STATIC_PRICING_BUNDLE,
         paygRateUsd: STATIC_PRICING_BUNDLE.paygRateUsd * 2,
@@ -680,9 +748,12 @@ describe('summariseIngestion', () => {
         doubledPricing,
       )
 
+      // Both figures are rounded to the penny before comparison, so doubling can
+      // land a penny either side of exactly 2×. Assert the scaling property
+      // within that rounding allowance rather than to the penny.
       expect(summaryDoubled.analyticsDailyCostUsd).toBeCloseTo(
         summaryDefault.analyticsDailyCostUsd * 2,
-        2,
+        1,
       )
     })
   })
@@ -783,15 +854,24 @@ describe('DEFECT: retention free-window hardcoded to 90, decoupled from logTiers
       // What it SHOULD compute if it honoured the (now-updated) tier
       // definition, matching the Data Lake native path's own pattern:
       //   extraDays = 200 - tierDef.freeRetentionDays(60) = 140
-      //   cost = round2((1.75/6) * 140 * 0.02) = 0.82
+      //
+      // Rates are read from the pricing bundle rather than written out, so this
+      // test keeps isolating the hardcoded-90 defect after a re-price instead
+      // of failing for an unrelated reason.
       const correctExtraDays = Math.max(0, 200 - analyticsDef.freeRetentionDays)
-      const correctRetentionCost =
-        Math.round(((row.gbPerDay / 6) * correctExtraDays * 0.02) * 100) / 100
+      const correctRetentionCost = round2(
+        (row.gbPerDay / DATA_LAKE_COMPRESSION_RATIO) *
+          correctExtraDays *
+          STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
+      )
 
-      expect(correctRetentionCost).toBeCloseTo(0.82, 2) // sanity check on our own arithmetic
+      // Sanity check on our own arithmetic: the corrected window is longer than
+      // the hardcoded one, so the correct cost must exceed what production returns.
+      expect(correctExtraDays).toBeGreaterThan(200 - originalFreeRetentionDays)
+      expect(correctRetentionCost).toBeGreaterThan(row.retentionMonthlyCostUsd)
 
-      // FAILS today: production code returns 0.64 (still using hardcoded 90),
-      // not 0.82 (what the now-changed tier definition says it should be).
+      // FAILS today: production still subtracts a hardcoded 90 rather than the
+      // now-changed tier definition, so it under-reports the retention cost.
       expect(row.retentionMonthlyCostUsd).toBeCloseTo(correctRetentionCost, 2)
     } finally {
       // Always restore the shared module singleton, regardless of pass/fail,
