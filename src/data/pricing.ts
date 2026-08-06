@@ -242,9 +242,12 @@ export const LOG_SOURCES: LogSource[] = [
     label: 'Entra ID Protection',
     group: 'identity',
     scaleBy: 'users',
-    gbPer1000UsersRange: [0.1, 0.5],
+    // Risk detections are exception events, not a per-user stream: a healthy
+    // 1,000-user tenant produces tens to low hundreds per day at 1-2 KB each,
+    // well under 1 MB/day. The previous [0.1, 0.5] range was 25-50x too high.
+    gbPer1000UsersRange: [0.002, 0.02],
     isFree: false,
-    notes: 'Risk detections and risky sign-in events; separate from standard Entra ID logs',
+    notes: 'Risk detections only — very low volume. SecurityAlert from the connector is free; the risk-event tables are billable',
   },
 
   // ── Microsoft Defender ────────────────────────────────────────────────────
@@ -287,11 +290,20 @@ export const LOG_SOURCES: LogSource[] = [
     label: 'Microsoft Defender for Cloud',
     group: 'microsoft-defender',
     scaleBy: 'devices',
-    gbPerDeviceRange: [0.2, 1.5],
+    // Defender for Cloud alerts are per-subscription and event-driven, not
+    // per-machine telemetry. The previous [0.2, 1.5] per-VM range produced
+    // 8.5 GB/day of Analytics volume at the default 10 VMs — around £1,000/month
+    // of cost that does not exist.
+    gbPerDeviceRange: [0.005, 0.02],
     deviceLabel: 'Azure VMs / servers',
     defaultDeviceCount: 10,
-    isFree: false,
-    notes: 'Security alerts, recommendations, and adaptive network hardening events',
+    // SecurityAlert from Defender for Cloud is on Microsoft's free data list.
+    // ALWAYS_FREE_SOURCES in licenceBenefits.ts already said so; pricing.ts
+    // disagreed with it and charged for the data.
+    isFree: true,
+    // SecurityAlert is on the Defender for Servers P2 eligible-table list.
+    p2Eligible: true,
+    notes: 'Security alerts are free to ingest; only continuous-export recommendation streams are billable',
   },
 
   // ── Microsoft 365 ─────────────────────────────────────────────────────────
@@ -301,8 +313,12 @@ export const LOG_SOURCES: LogSource[] = [
     group: 'microsoft-365',
     scaleBy: 'users',
     gbPer1000UsersRange: [0.1, 1.0],   // default shown when no variant selected
-    isFree: false,
-    notes: 'Volume varies greatly by workload scope; management activity may be free',
+    // Microsoft's free data list covers Office 365 audit logs in full —
+    // SharePoint activity, Exchange admin activity and Teams. The OfficeActivity
+    // table is the only table this source maps to, so all variants are free.
+    // ALWAYS_FREE_SOURCES already listed this; pricing.ts charged for it anyway.
+    isFree: true,
+    notes: 'Free to ingest — SharePoint, Exchange admin and Teams audit records are all on Microsoft\'s free data list',
     variants: [
       {
         id: 'exchange',
@@ -369,14 +385,19 @@ export const LOG_SOURCES: LogSource[] = [
   },
   {
     id: 'nsg-flow',
-    label: 'NSG Flow Logs',
+    label: 'VNet Flow Logs (Traffic Analytics)',
     group: 'network',
     scaleBy: 'devices',
-    gbPerDeviceRange: [5.0, 50.0],
-    deviceLabel: 'VNETs / NSGs',
+    // Raw flow logs are written to Azure Storage, not Log Analytics. What
+    // reaches the workspace is the Traffic Analytics output, which aggregates
+    // flows sharing a source IP, destination IP, port and protocol — Microsoft's
+    // own worked example collapses 100 raw records into one. The previous
+    // [5, 50] band was a raw-flow figure applied to the reduced stream.
+    gbPerDeviceRange: [0.5, 6.0],
+    deviceLabel: 'VNets',
     defaultDeviceCount: 2,
     isFree: false,
-    notes: 'Extremely high volume — strongly recommended for Data Lake tier',
+    notes: 'Aggregated Traffic Analytics output, not raw flows. NSG flow logs retire 30 September 2027 — VNet flow logs are the replacement',
   },
   {
     id: 'waf',

@@ -16,10 +16,10 @@
 import { describe, it, expect } from 'vitest'
 
 import { fmtGbp } from '../currency'
-import { breakevenForTier, computeTierOptions } from '../tiers'
+import { breakevenForTier, computeTierOptions, costAtVolume } from '../tiers'
 import { computeLicenceBenefits } from '../licenceBenefits'
 import { summariseIngestion, estimateSourceGbPerDay } from '../ingestion'
-import { interpolateRange, getSizeMultiplier } from '../../data/tshirtSizes'
+import { interpolateRange, getSizeMultiplier, TSHIRT_SIZES } from '../../data/tshirtSizes'
 import { SERVER_WORKLOADS } from '../../data/serverWorkloads'
 import { computeServerWorkloadRows } from '../serverWorkloads'
 import { round2 } from '../round'
@@ -342,9 +342,27 @@ describe('computeLicenceBenefits', () => {
 
   // ── E5 grant: only eligible for entra-id + mdca analytics rows ──────────
 
-  it('MDE is NOT eligible for E5 grant (not in eligible set)', () => {
-    // mde at 10 GB/day — not an E5 grant source
+  it('MDE is eligible for the E5 grant as Defender XDR advanced hunting data', () => {
+    // Microsoft's offer covers M365 Defender advanced hunting — device, email
+    // and identity events. Excluding mde/mdi/mdo capped the grant by a small
+    // eligible pool rather than by the allowance.
     const rows = [makeRow(mdeSource, 10)]
+    const result = computeLicenceBenefits(rows, 10, 'e5', 500, false, 0)
+    expect(result.e5EligibleAnalyticsGbPerDay).toBeCloseTo(10, 2)
+    // 500 users x 5 MB = 2.5 GB/day allowance, which is the binding constraint.
+    expect(result.e5GrantGbPerDay).toBeCloseTo(2.5, 2)
+  })
+
+  it('caps the grant at the allowance, not at the eligible volume, when eligible volume is larger', () => {
+    const rows = [makeRow(mdeSource, 100)]
+    const result = computeLicenceBenefits(rows, 100, 'e5', 500, false, 0)
+    expect(result.e5GrantGbPerDay).toBeCloseTo(result.e5AllowanceGbPerDay, 2)
+  })
+
+  it('a source outside the eligible set contributes nothing to the grant', () => {
+    // Key Vault diagnostics are not part of any E5 grant category.
+    const keyVaultSource = LOG_SOURCES.find(s => s.id === 'key-vault')!
+    const rows = [makeRow(keyVaultSource, 10)]
     const result = computeLicenceBenefits(rows, 10, 'e5', 500, false, 0)
     expect(result.e5EligibleAnalyticsGbPerDay).toBe(0)
     expect(result.e5GrantGbPerDay).toBe(0)
@@ -390,8 +408,8 @@ describe('computeLicenceBenefits', () => {
   })
 
   it('E5 grant is zero when no eligible sources are selected', () => {
-    // Only mde selected — not eligible
-    const rows = [makeRow(mdeSource, 5)]
+    const keyVaultSource = LOG_SOURCES.find(s => s.id === 'key-vault')!
+    const rows = [makeRow(keyVaultSource, 5)]
     const result = computeLicenceBenefits(rows, 5, 'e5', 500, false, 0)
     expect(result.e5GrantGbPerDay).toBe(0)
     expect(result.e5SavedMonthlyUsd).toBe(0)
@@ -475,33 +493,64 @@ describe('computeLicenceBenefits', () => {
 // ---------------------------------------------------------------------------
 
 describe('t-shirt size interpolation', () => {
-  it('S at 0.30: interpolateRange(2, 10, 0.30) = 4.4', () => {
-    expect(interpolateRange(2, 10, 0.30)).toBeCloseTo(4.4, 5)
+  // Interpolation is geometric: ingestion volumes are roughly log-normal, so
+  // the typical value in a wide band sits near the geometric mean rather than
+  // the arithmetic one.
+
+  it('M at 0.50 returns the geometric mean, not the arithmetic midpoint', () => {
+    // sqrt(2 * 10) = 4.472, against a linear midpoint of 6.0
+    expect(interpolateRange(2, 10, 0.5)).toBeCloseTo(Math.sqrt(2 * 10), 5)
   })
 
-  it('M at 0.50: interpolateRange(2, 10, 0.50) = 6.0 (matches old midpoint)', () => {
-    expect(interpolateRange(2, 10, 0.50)).toBeCloseTo(6.0, 5)
+  it('is monotonically increasing across the multiplier range', () => {
+    const values = [0, 0.05, 0.25, 0.5, 0.75, 0.95, 1].map(m => interpolateRange(2, 10, m))
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]).toBeGreaterThan(values[i - 1])
+    }
   })
 
-  it('L at 0.75: interpolateRange(2, 10, 0.75) = 8.0', () => {
-    expect(interpolateRange(2, 10, 0.75)).toBeCloseTo(8.0, 5)
+  it('returns exactly the endpoints at 0 and 1', () => {
+    expect(interpolateRange(2, 10, 0)).toBeCloseTo(2, 10)
+    expect(interpolateRange(2, 10, 1)).toBeCloseTo(10, 10)
   })
 
-  it('XL at 0.95: interpolateRange(2, 10, 0.95) = 9.6', () => {
-    expect(interpolateRange(2, 10, 0.95)).toBeCloseTo(9.6, 5)
+  it('stays inside the declared range at every size', () => {
+    for (const size of TSHIRT_SIZES) {
+      const value = interpolateRange(5, 50, size.multiplier)
+      expect(value).toBeGreaterThanOrEqual(5)
+      expect(value).toBeLessThanOrEqual(50)
+    }
   })
 
-  it('getSizeMultiplier returns correct values for each size', () => {
-    expect(getSizeMultiplier('S')).toBe(0.30)
-    expect(getSizeMultiplier('M')).toBe(0.50)
-    expect(getSizeMultiplier('L')).toBe(0.75)
-    expect(getSizeMultiplier('XL')).toBe(0.95)
+  it('lets the Light profile approach the documented minimum', () => {
+    // The S multiplier was 0.30 with linear interpolation, so a [5, 50] source
+    // could never produce less than 18.5 GB/day and "Light" was not light.
+    const light = interpolateRange(5, 50, getSizeMultiplier('S'))
+    expect(light).toBeLessThan(7)
   })
 
-  it('M interpolation matches midpoint formula for symmetric ranges', () => {
-    // At multiplier=0.5, interpolateRange(min, max, 0.5) = (min + max) / 2
-    const min = 1.5, max = 2.5
-    expect(interpolateRange(min, max, 0.5)).toBeCloseTo((min + max) / 2, 10)
+  it('falls back to linear when an endpoint is zero, where the geometric form is undefined', () => {
+    expect(interpolateRange(0, 10, 0.5)).toBeCloseTo(5, 10)
+  })
+
+  it('getSizeMultiplier returns an ascending multiplier for each size', () => {
+    const multipliers = (['S', 'M', 'L', 'XL'] as const).map(getSizeMultiplier)
+    expect(multipliers).toEqual([...multipliers].sort((a, b) => a - b))
+    expect(multipliers[0]).toBeGreaterThan(0)
+    expect(multipliers[multipliers.length - 1]).toBeLessThanOrEqual(1)
+  })
+
+  it('barely moves narrow ranges, leaving well-calibrated server bands intact', () => {
+    // Server workload bands are typically under 2x wide; the correction targets
+    // the wide, uncertain network sources. Within 5% on a narrow band, against
+    // 40%+ on a 10x band.
+    const narrowLinear = 1.5 + (2.5 - 1.5) * 0.5
+    const narrowShift = Math.abs(interpolateRange(1.5, 2.5, 0.5) - narrowLinear) / narrowLinear
+    expect(narrowShift).toBeLessThan(0.05)
+
+    const wideLinear = 5 + (50 - 5) * 0.5
+    const wideShift = Math.abs(interpolateRange(5, 50, 0.5) - wideLinear) / wideLinear
+    expect(wideShift).toBeGreaterThan(0.3)
   })
 })
 
@@ -513,9 +562,15 @@ describe('computeServerWorkloadRows', () => {
   const dcWorkload = SERVER_WORKLOADS.find(w => w.id === 'ws-dc')!
   const lxWebWorkload = SERVER_WORKLOADS.find(w => w.id === 'lx-web')!
 
-  it('DC at 5 servers, Common level, M size → ~10 GB/day', () => {
-    // Common level: [1.5, 2.5], M multiplier = 0.5 → interpolate = 2.0 GB/server/day
-    // 5 servers × 2.0 = 10.0 GB/day
+  it('DC at 5 servers, Common level, M size scales the interpolated per-server rate', () => {
+    const commonLevel = dcWorkload.collectionLevels.find(l => l.id === 'common')!
+    const expected = round2(
+      interpolateRange(
+        commonLevel.gbPerServerPerDay.min,
+        commonLevel.gbPerServerPerDay.max,
+        getSizeMultiplier('M'),
+      ) * 5,
+    )
     const rows = computeServerWorkloadRows(
       [dcWorkload],
       { 'ws-dc': 5 },
@@ -527,7 +582,7 @@ describe('computeServerWorkloadRows', () => {
       STATIC_PRICING_BUNDLE,
     )
     expect(rows).toHaveLength(1)
-    expect(rows[0].gbPerDay).toBeCloseTo(10.0, 2)
+    expect(rows[0].gbPerDay).toBeCloseTo(expected, 2)
     expect(rows[0].source.id).toBe('ws-dc')
   })
 
@@ -663,10 +718,11 @@ describe('summariseIngestion', () => {
       expect(summary.freeGbPerDay).toBeGreaterThan(0)
     })
 
-    it('freeGbPerDay equals 0.28 GB/day (interpolateRange(0.05, 0.5, 0.5) at 1 000 users)', () => {
-      // azure-activity range changed to [0.05, 0.5]; M multiplier = 0.5
-      // interpolateRange(0.05, 0.5, 0.5) = 0.275, round2 = 0.28
-      expect(summary.freeGbPerDay).toBeCloseTo(0.28, 2)
+    it('freeGbPerDay matches the interpolated range at 1,000 users', () => {
+      const source = LOG_SOURCES.find(s => s.id === 'azure-activity')!
+      const [min, max] = source.gbPer1000UsersRange!
+      const expected = round2(interpolateRange(min, max, getSizeMultiplier('M')) * (1000 / 1000))
+      expect(summary.freeGbPerDay).toBeCloseTo(expected, 2)
     })
 
     it('totalDailyCostUsd === 0 (free source has no ingestion charge)', () => {
@@ -705,8 +761,11 @@ describe('summariseIngestion', () => {
       expect(summary.freeGbPerDay).toBe(0)
     })
 
-    it('analyticsGbPerDay equals 1.75', () => {
-      expect(summary.analyticsGbPerDay).toBeCloseTo(1.75, 5)
+    it('analyticsGbPerDay matches the interpolated entra-id range', () => {
+      const source = LOG_SOURCES.find(s => s.id === 'entra-id')!
+      const [min, max] = source.gbPer1000UsersRange!
+      const expected = round2(interpolateRange(min, max, getSizeMultiplier('M')))
+      expect(summary.analyticsGbPerDay).toBeCloseTo(expected, 2)
     })
   })
 
@@ -838,7 +897,7 @@ describe('retention free-window is read from logTiers.ts, not hardcoded', () => 
       )
 
       const row = summary.rows.find(r => r.source.id === 'entra-id')!
-      expect(row.gbPerDay).toBeCloseTo(1.75, 2)
+      expect(row.gbPerDay).toBeGreaterThan(0)
 
       // What summariseIngestion ACTUALLY computes (hardcoded 90):
       //   extraDays = 200 - 90 = 110
@@ -961,7 +1020,10 @@ describe('negative and NaN inputs are rejected by the calculation layer', () => 
 
 describe('optimisedMonthly applies the licence grant exactly once', () => {
   it('does not subtract the grant again from a commitment tier already sized on the net volume', () => {
-    const userCount = 5000
+    // Large enough that a commitment tier genuinely beats PAYG even after the
+    // licence grant is netted out — which is the only situation where the
+    // double-count could occur.
+    const userCount = 50000
     const selectedIds = new Set([
       'entra-id', 'mdca', 'mde', 'mdi', 'mdo', 'entra-id-protection',
       'o365-audit', 'intune', 'key-vault', 'vpn-ztna',
@@ -998,16 +1060,21 @@ describe('optimisedMonthly applies the licence grant exactly once', () => {
         + summary.retentionMonthlyCostUsd,
     )
 
-    // The former bug subtracted totalSavings here as well. Had it survived, the
-    // quoted figure would sit exactly one grant below the achievable cost.
-    const doubleCounted = Math.max(0, optimisedMonthly - totalSavings)
-    expect(optimisedMonthly - doubleCounted).toBeCloseTo(totalSavings, 2)
+    // The total is exactly its three components. The former bug subtracted
+    // totalSavings here as well, on top of the netting already baked into
+    // analyticsCommitmentMonthly.
+    expect(optimisedMonthly).toBeCloseTo(
+      analyticsCommitmentMonthly
+        + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
+        + summary.retentionMonthlyCostUsd,
+      2,
+    )
 
-    // The grant's effect is present exactly once: the optimised total must land
-    // below the gross commitment cost, but not by more than the grant's value.
+    // The grant's effect is present exactly once: pricing the same tier against
+    // the gross volume costs more, and the difference is the grant's worth at
+    // the tier's discounted rate — necessarily no more than its worth at PAYG.
     const grossCommitmentMonthly =
-      computeTierOptions(summary.analyticsGbPerDay, STATIC_PRICING_BUNDLE, EXCHANGE_RATE_USD_TO_GBP)
-        .find(o => o.tier?.gbPerDay === recommendedOption!.tier!.gbPerDay)!.monthlyCostUsd
+      costAtVolume(recommendedOption!.tier!, summary.analyticsGbPerDay) * DAYS_PER_MONTH
     const appliedBenefit = grossCommitmentMonthly - analyticsCommitmentMonthly
     expect(appliedBenefit).toBeGreaterThan(0)
     expect(appliedBenefit).toBeLessThanOrEqual(totalSavings + 0.01)

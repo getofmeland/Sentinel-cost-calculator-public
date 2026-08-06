@@ -25,7 +25,7 @@ export interface LicenceBenefitResult {
   e5IsActive: boolean
 
   // Defender for Servers P2
-  /** Analytics-tier GB/day from Windows Security + Linux Syslog (non-free sources) */
+  /** Analytics-tier GB/day from p2Eligible sources — Windows server workloads and Defender for Cloud */
   defenderServersEligibleGbPerDay: number
   /** enrolledServers × 500 MB/day allowance */
   defenderServersAllowanceGbPerDay: number
