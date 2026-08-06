@@ -51,10 +51,17 @@ interface CacheEntry {
   data: PricingBundle
   fetchedAt: number
   isLive: boolean
+  /** Set when the entry records a failed fetch, so it expires sooner */
+  isFailure?: boolean
 }
 
 const cache = new Map<string, CacheEntry>()
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+
+// A failed fetch is cached only briefly. Caching a transient network error for
+// a full day would pin the user to static rates until they found the refresh
+// button, with the UI giving no clue why.
+const FAILURE_CACHE_TTL_MS = 60 * 1000 // 1 min
 
 export function clearRegionCache(arm: string) {
   cache.delete(arm)
@@ -68,14 +75,13 @@ const BASE_URL = import.meta.env.DEV
   ? '/azure-pricing'
   : '/api/azure-pricing'
 
-async function fetchPage(filter: string, signal: AbortSignal): Promise<{ Items: AzurePriceItem[]; NextPageLink?: string }> {
-  const url = `${BASE_URL}?$filter=${encodeURIComponent(filter)}&$top=100`
-  const res = await fetch(url, { signal })
+async function fetchPage(query: string, signal: AbortSignal): Promise<{ Items: AzurePriceItem[]; NextPageLink?: string }> {
+  const res = await fetch(`${BASE_URL}?${query}`, { signal })
   if (!res.ok) throw new Error(`Azure pricing API ${res.status}`)
   return res.json()
 }
 
-interface AzurePriceItem {
+export interface AzurePriceItem {
   meterName: string
   retailPrice: number
   unitOfMeasure: string
@@ -84,30 +90,56 @@ interface AzurePriceItem {
   productName?: string
 }
 
+/** Cap on pages followed, so a malformed NextPageLink chain cannot loop forever */
+const MAX_PAGES = 10
+
 async function fetchAll(filter: string, signal: AbortSignal): Promise<AzurePriceItem[]> {
   const items: AzurePriceItem[] = []
-  let page = await fetchPage(filter, signal)
-  items.push(...page.Items)
-  while (page.NextPageLink) {
-    const res = await fetch(page.NextPageLink, { signal })
-    if (!res.ok) break
-    page = await res.json()
-    items.push(...page.Items)
+  let query = `$filter=${encodeURIComponent(filter)}&$top=100`
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const result = await fetchPage(query, signal)
+    items.push(...result.Items)
+    if (!result.NextPageLink) break
+
+    // NextPageLink is an absolute prices.azure.com URL. Following it directly
+    // would bypass the CORS proxy and fail in the browser, so carry only its
+    // query string over to the proxied endpoint.
+    query = new URL(result.NextPageLink).search.replace(/^\?/, '')
   }
+
   return items
 }
 
 // ─── Parse helpers ────────────────────────────────────────────────────────────
 
-function parsePayg(items: AzurePriceItem[]): number | null {
-  // Azure API returns "Pay-as-you-go Analysis" (not just "Analysis")
-  const item = items.find(i =>
-    i.meterName === 'Pay-as-you-go Analysis' || i.meterName === 'Analysis'
-  )
+/**
+ * Meter names as the retail API actually spells them. Note the lowercase "lake"
+ * — an earlier `contains(meterName, 'Data Lake')` filter matched nothing at all
+ * because the API's contains() is case-sensitive, so Data Lake pricing silently
+ * fell back to static values while the UI displayed a "Live" badge.
+ */
+const METERS = {
+  payg: 'Pay-as-you-go Analysis',
+  paygLegacy: 'Analysis',
+  lakeIngestion: 'Data lake ingestion Data Processed',
+  lakeProcessing: 'Data processing Data Processed',
+  lakeQuery: 'Data lake query Data Analyzed',
+  lakeStorage: 'Data lake storage Data Stored',
+} as const
+
+function priceOf(items: AzurePriceItem[], meterName: string): number | null {
+  const item = items.find(i => i.meterName === meterName)
   return item ? item.retailPrice : null
 }
 
-function parseTiers(items: AzurePriceItem[], paygRate: number): CommitmentTier[] {
+/** Exported for testing against a recorded API response. */
+export function parsePayg(items: AzurePriceItem[]): number | null {
+  return priceOf(items, METERS.payg) ?? priceOf(items, METERS.paygLegacy)
+}
+
+/** Exported for testing against a recorded API response. */
+export function parseTiers(items: AzurePriceItem[], paygRate: number): CommitmentTier[] {
   // Matches "100 GB Commitment Tier" (old) and "100 GB Commitment Tier Capacity Reservation" (current)
   const TIER_RE = /^(\d+)\s*GB\s+Commitment\s+Tier/i
   const parsed: CommitmentTier[] = []
@@ -133,13 +165,26 @@ function parseTiers(items: AzurePriceItem[], paygRate: number): CommitmentTier[]
   return parsed.sort((a, b) => a.gbPerDay - b.gbPerDay)
 }
 
-function parseDataLake(items: AzurePriceItem[]): { ingestion: number | null } {
-  // Look for Data Lake Ingestion meter
-  const ingestionItem = items.find(i =>
-    i.meterName.toLowerCase().includes('ingestion') ||
-    i.meterName.toLowerCase().includes('data lake')
-  )
-  return { ingestion: ingestionItem ? ingestionItem.retailPrice : null }
+export interface DataLakeRates {
+  /** Ingestion + data processing, which both apply to lake ingestion */
+  ingestion: number | null
+  query: number | null
+  storage: number | null
+}
+
+/** Exported for testing against a recorded API response. */
+export function parseDataLake(items: AzurePriceItem[]): DataLakeRates {
+  // Microsoft bills lake ingestion as two meters that both apply. Reading only
+  // the first understates it roughly threefold.
+  const lakeIngestion = priceOf(items, METERS.lakeIngestion)
+  const processing = priceOf(items, METERS.lakeProcessing)
+
+  return {
+    ingestion:
+      lakeIngestion !== null && processing !== null ? lakeIngestion + processing : null,
+    query: priceOf(items, METERS.lakeQuery),
+    storage: priceOf(items, METERS.lakeStorage),
+  }
 }
 
 // ─── Main fetch function ───────────────────────────────────────────────────────
@@ -151,54 +196,50 @@ export interface FetchResult {
 }
 
 export async function fetchSentinelPricing(region: string): Promise<FetchResult> {
-  // Check cache
   const cached = cache.get(region)
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-    return { bundle: cached.data, isLive: cached.isLive, fetchedAt: cached.fetchedAt }
+  if (cached) {
+    const ttl = cached.isFailure ? FAILURE_CACHE_TTL_MS : CACHE_TTL_MS
+    if (Date.now() - cached.fetchedAt < ttl) {
+      return { bundle: cached.data, isLive: cached.isLive, fetchedAt: cached.fetchedAt }
+    }
   }
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const [paygItems, tierItems, dlItems] = await Promise.all([
-      fetchAll(
-        `serviceName eq 'Sentinel' and meterName eq 'Pay-as-you-go Analysis' and priceType eq 'Consumption' and armRegionName eq '${region}'`,
-        controller.signal,
-      ),
-      fetchAll(
-        `serviceName eq 'Sentinel' and contains(meterName, 'Commitment Tier') and priceType eq 'Consumption' and armRegionName eq '${region}'`,
-        controller.signal,
-      ),
-      fetchAll(
-        `serviceName eq 'Sentinel' and contains(meterName, 'Data Lake') and priceType eq 'Consumption' and armRegionName eq '${region}'`,
-        controller.signal,
-      ),
-    ])
+    // One query for every Sentinel consumption meter in the region — around two
+    // dozen rows, comfortably inside a single page. Previously this was three
+    // separate `contains()` filters, one of which matched nothing because the
+    // API's contains() is case-sensitive. Fetching the lot and matching meter
+    // names locally removes that whole class of failure, and picks up the
+    // "Data processing" meter, which no "Data lake" filter would ever return.
+    const items = await fetchAll(
+      `serviceName eq 'Sentinel' and priceType eq 'Consumption' and armRegionName eq '${region}'`,
+      controller.signal,
+    )
 
-    const paygRate = parsePayg(paygItems) ?? STATIC_PRICING_BUNDLE.paygRateUsd
-    const commitmentTiers = parseTiers(tierItems, paygRate)
-    const dl = parseDataLake(dlItems)
+    const paygRate = parsePayg(items)
+    const commitmentTiers = parseTiers(items, paygRate ?? STATIC_PRICING_BUNDLE.paygRateUsd)
+    const dl = parseDataLake(items)
 
-    if (paygItems.length === 0 && tierItems.length === 0) {
-      // Region returned no data — fall back to static
+    if (paygRate === null && commitmentTiers === STATIC_PRICING_BUNDLE.commitmentTiers) {
+      // Region returned nothing usable — fall back to static
       console.warn(`[azurePricing] No pricing data for region '${region}', using static defaults`)
       const entry: CacheEntry = { data: STATIC_PRICING_BUNDLE, fetchedAt: Date.now(), isLive: false }
       cache.set(region, entry)
       return { bundle: STATIC_PRICING_BUNDLE, isLive: false, fetchedAt: entry.fetchedAt }
     }
 
-    // Retention rates (Analytics extended + DL retention) come from Azure Monitor pricing
-    // (different service name). These rarely change — fall back to static values.
-    console.info('[azurePricing] Retention rates (0.023, 0.02) are from Azure Monitor pricing; using static values.')
-
+    // Analytics extended retention is billed under a different serviceName
+    // ("Log Analytics"), so it is not in this response and stays static.
     const bundle: PricingBundle = {
-      paygRateUsd: paygRate,
+      paygRateUsd: paygRate ?? STATIC_PRICING_BUNDLE.paygRateUsd,
       commitmentTiers,
       dataLakeRateUsd: dl.ingestion ?? STATIC_PRICING_BUNDLE.dataLakeRateUsd,
       analyticsExtendedRetentionRateUsd: STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd,
-      dataLakeRetentionRateUsd: STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
-      dataLakeQueryRateUsd: STATIC_PRICING_BUNDLE.dataLakeQueryRateUsd,
+      dataLakeRetentionRateUsd: dl.storage ?? STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
+      dataLakeQueryRateUsd: dl.query ?? STATIC_PRICING_BUNDLE.dataLakeQueryRateUsd,
     }
 
     const entry: CacheEntry = { data: bundle, fetchedAt: Date.now(), isLive: true }
@@ -206,7 +247,9 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
     return { bundle, isLive: true, fetchedAt: entry.fetchedAt }
   } catch (err) {
     console.warn(`[azurePricing] Failed to fetch pricing for '${region}':`, err)
-    const entry: CacheEntry = { data: STATIC_PRICING_BUNDLE, fetchedAt: Date.now(), isLive: false }
+    // Cached with a short TTL (see FAILURE_CACHE_TTL_MS) so a transient error
+    // retries soon, rather than locking the region to static rates all day.
+    const entry: CacheEntry = { data: STATIC_PRICING_BUNDLE, fetchedAt: Date.now(), isLive: false, isFailure: true }
     cache.set(region, entry)
     return { bundle: STATIC_PRICING_BUNDLE, isLive: false, fetchedAt: entry.fetchedAt }
   } finally {
