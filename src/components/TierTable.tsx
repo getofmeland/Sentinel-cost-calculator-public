@@ -29,7 +29,7 @@ function SavingsCell({ pct, isRec }: { pct: number | null; isRec: boolean }) {
 }
 
 export function TierTable({ options, billableGbPerDay }: Props) {
-  const { fxRate, displayCurrency, eurRate } = usePricing()
+  const { fxRate, displayCurrency, eurRate, pricing } = usePricing()
 
   function fmt(usd: number) {
     return fmtCurrency(usd, displayCurrency, fxRate, eurRate, 2)
@@ -102,8 +102,8 @@ export function TierTable({ options, billableGbPerDay }: Props) {
                 </td>
                 <td className={`px-4 py-3 text-right font-mono ${isRec ? 'text-white/80' : 'text-light/60'}`}>
                   {opt.isPayg
-                    ? `$${(5.20).toFixed(2)}`
-                    : `$${opt.tier!.effectiveRateUsd.toFixed(2)}`}
+                    ? fmt(pricing.paygRateUsd)
+                    : fmt(opt.tier!.effectiveRateUsd)}
                 </td>
                 <td className={`px-4 py-3 text-right font-mono ${isRec ? 'text-white' : 'text-light/70'}`}>
                   {fmt(opt.dailyCostUsd)}

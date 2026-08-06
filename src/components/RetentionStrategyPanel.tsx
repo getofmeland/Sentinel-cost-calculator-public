@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { RetentionStrategy, DATA_LAKE_MIRROR_RETENTION_OPTIONS } from '../data/pricing'
 import { getTierDefinition } from '../data/logTiers'
 import { SourceEstimateRow } from '../utils/ingestion'
-import { fmtGbp } from '../utils/currency'
+import { fmtGbp, fmtCurrency } from '../utils/currency'
 import { fmtRetentionOption } from '../utils/retention'
 import { usePricing } from '../contexts/PricingContext'
 
@@ -27,7 +27,15 @@ export function RetentionStrategyPanel({
   retentionDays,
   hasCustomPerSource,
 }: RetentionStrategyPanelProps) {
-  const { pricing, fxRate } = usePricing()
+  const { pricing, fxRate, displayCurrency, eurRate } = usePricing()
+
+  // Query charges are quoted per GB scanned. Three decimals because the rate is
+  // fractions of a penny — rounding to two would render it as zero.
+  const queryRateLabel = fmtCurrency(pricing.dataLakeQueryRateUsd, displayCurrency, fxRate, eurRate, 3)
+
+  // Read from the tier definition rather than repeating the literal 90, so a
+  // change to the free window propagates to the copy the user reads.
+  const analyticsFreeRetentionDays = getTierDefinition('analytics').freeRetentionDays
   const [perSourceOpen, setPerSourceOpen] = useState(false)
 
   const analyticsTierDef = getTierDefinition('analytics')
@@ -85,9 +93,9 @@ export function RetentionStrategyPanel({
       {/* Section 2 — Info note (mirror only) */}
       {globalStrategy === 'data-lake-mirror' && (
         <p className="text-xs text-light/60">
-          Analytics tables are automatically mirrored to the Data Lake after 90 days at no additional
-          ingestion cost. Only storage is charged. Query charges of $0.005/GB apply when searching
-          mirrored data.
+          Analytics tables are automatically mirrored to the Data Lake after {analyticsFreeRetentionDays} days
+          at no additional ingestion cost. Only storage is charged. Query charges of {queryRateLabel}/GB
+          apply when searching mirrored data.
         </p>
       )}
 
@@ -132,7 +140,7 @@ export function RetentionStrategyPanel({
                 <tr>
                   <td className="px-3 py-2 text-light/60">Query cost</td>
                   <td className="px-3 py-2 text-right text-light">Included</td>
-                  <td className="px-3 py-2 text-right text-light/60">£0.004/GB scanned</td>
+                  <td className="px-3 py-2 text-right text-light/60">{queryRateLabel}/GB scanned</td>
                   <td className="px-3 py-2 text-right text-light/30">—</td>
                 </tr>
               </tbody>

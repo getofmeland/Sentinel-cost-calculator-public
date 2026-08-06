@@ -8,96 +8,113 @@ allowed-tools: Read, Glob, Grep
 
 You validate the cost calculation logic in this Sentinel cost calculator. You can read everything but must not change anything.
 
-## Validation Checks
+## Before you start: derive, never assume
 
-Run through each of these scenarios and report PASS or FAIL with your working.
+**Read `src/data/pricing.ts` first and take every rate from there.** Do not carry rates in from memory, from a pricing page, or from an earlier version of this file.
 
-### 1. Pay-As-You-Go Calculations
+This skill previously hardcoded a full table of expected values. When the rates were corrected, it would have reported FAIL against correct code — a validation oracle that disagrees with the source of truth is worse than no oracle. So all expectations below are expressed as *formulas over the constants*, not as numbers.
 
-| Input (GB/day) | Expected Monthly (USD) | Formula |
-|---|---|---|
-| 0 | $0 | 0 × $5.20 × 30.44 |
-| 1 | $158 | 1 × $5.20 × 30.44 |
-| 10 | $1,583 | 10 × $5.20 × 30.44 |
-| 50 | $7,914 | 50 × $5.20 × 30.44 |
-| 100 | $15,829 | 100 × $5.20 × 30.44 |
-| 500 | $79,144 | 500 × $5.20 × 30.44 |
+Bind these once, then reuse them:
 
-### 2. Commitment Tier — At Exactly the Tier Level
+- `PAYG` = `PAYG_RATE_USD_PER_GB`
+- `DAYS` = `DAYS_PER_MONTH`
+- `TIERS` = `COMMITMENT_TIERS` (each has `gbPerDay`, `dailyCostUsd`, `effectiveRateUsd`, `savingsVsPayg`)
+- `FX_GBP` = `EXCHANGE_RATE_USD_TO_GBP`, `FX_EUR` = `EXCHANGE_RATE_USD_TO_EUR`
+- `LAKE` = `DATA_LAKE_RATE_USD_PER_GB`, `LAKE_QUERY` = `DATA_LAKE_QUERY_RATE_USD_PER_GB`
+- `LAKE_STORE` = `DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH`
+- `ANALYTICS_RET` = `ANALYTICS_INTERACTIVE_RETENTION_RATE_USD_PER_GB_PER_MONTH`
+- `COMPRESSION` = `DATA_LAKE_COMPRESSION_RATIO`
 
-For each tier, if ingestion equals exactly the tier GB/day, the monthly cost should be:
-- `tier.dailyUsd × 30.44`
+State the bound values at the top of your report so the reader can see what you validated against.
 
-Verify this for all tiers (50, 100, 200, 500, 1000, 2000, 5000).
+## Validation checks
 
-### 3. Commitment Tier — Below the Tier Level
+Report PASS or FAIL for each, showing your working.
 
-If a customer commits to 100 GB/day but only ingests 60 GB/day, they still pay the full 100 GB/day commitment:
-- Monthly cost = 335 × 30.44 = $10,197
+### 1. Pay-as-you-go
 
-Verify the calculator handles this correctly (does NOT prorate for underuse).
+For G in {0, 1, 10, 50, 100, 500}: monthly cost must equal `G × PAYG × DAYS`.
+Check 0 yields exactly 0, not NaN.
 
-### 4. Commitment Tier — Above the Tier Level
+### 2. Commitment tier at exactly the tier level
 
-If a customer commits to 100 GB/day but ingests 150 GB/day:
-- Overage (50 GB) is billed at the SAME effective rate, not PAYG
-- Effective rate = $335 ÷ 100 = $3.35/GB
-- Monthly cost = 150 × $3.35 × 30.44 = $15,296
+For every tier: monthly cost must equal `tier.dailyCostUsd × DAYS`.
+Cover every tier present in `COMMITMENT_TIERS` — do not assume how many there are.
 
-Verify this. Common mistake: charging overage at PAYG rate.
+### 3. Commitment tier below the tier level
 
-### 5. Breakeven Points
+Committing to tier T while ingesting less than `T.gbPerDay` still costs the full commitment: `T.dailyCostUsd × DAYS`. Verify the calculator does **not** prorate for underuse.
 
-For each tier, the breakeven GB/day where it becomes cheaper than PAYG:
-- Formula: tier.dailyUsd ÷ PAYG_RATE
-- 50 GB tier: $190 ÷ $5.20 = 36.5 GB/day
-- 100 GB tier: $335 ÷ $5.20 = 64.4 GB/day
-- 200 GB tier: $630 ÷ $5.20 = 121.2 GB/day
+### 4. Commitment tier above the tier level
 
-Verify the calculator computes and displays these correctly.
+Overage is billed at the tier's own effective rate, not PAYG. For volume V above `T.gbPerDay`:
 
-### 6. Best Tier Recommendation
+```
+daily = T.dailyCostUsd + (V − T.gbPerDay) × T.effectiveRateUsd
+```
 
-| Ingestion (GB/day) | Expected Recommendation |
-|---|---|
-| 5 | Pay-As-You-Go |
-| 40 | 50 GB tier (if cheaper than PAYG) |
-| 70 | 100 GB tier |
-| 150 | 200 GB tier |
-| 400 | 500 GB tier |
+Confirm `BILLING_RULES.overageAtTierRate` is still `true`. Common mistake: charging overage at PAYG.
 
-Verify the recommendation logic picks the cheapest option, not just the closest tier.
+### 5. Tier table integrity
 
-### 7. Currency Conversion
+- `tier.effectiveRateUsd` must equal `tier.dailyCostUsd / tier.gbPerDay`
+- `tier.savingsVsPayg` must equal `1 − tier.effectiveRateUsd / PAYG`
+- Every tier must undercut PAYG
+- Larger commitments must never be worse value than smaller ones
+- No tier may claim a saving above Microsoft's published maximum of 52%
 
-- Default FX rate: 0.79
-- $10,000/mo should display as £7,900/mo
-- Verify rounding is to the nearest whole pound/dollar
+### 6. Breakeven points
 
-### 8. Free Source Handling
+For each tier, breakeven = `tier.dailyCostUsd / PAYG`. Each must fall below that tier's `gbPerDay` — that is what makes the tier worth buying.
 
-- Azure Activity Logs should never appear in billable totals
-- Office 365 Audit Logs are marked "partial" — verify they are handled correctly
+### 7. Best tier recommendation
+
+The recommendation must be the genuinely cheapest option at the given volume, not the nearest tier. Verify by computing the cost of *every* option at that volume and confirming the recommended one is the minimum. Test a low volume where PAYG should win, and several volumes spanning the tier ladder.
+
+### 8. Retention
+
+Retention is a flow-to-stock conversion: ingesting G GB/day and holding D extra days leaves `G × D` GB at rest, so monthly cost is `G × D × rate`.
+
+- Analytics extended: `G × max(0, days − freeWindow) × ANALYTICS_RET`
+- Data Lake mirror: `(G / COMPRESSION) × max(0, days − freeWindow) × LAKE_STORE`
+
+`freeWindow` must come from `getTierDefinition(tier).freeRetentionDays`, not a hardcoded 90. Flag any site that hardcodes it.
+
+Sanity check the magnitude: interactive retention is roughly 30× the lake storage rate before compression, and roughly 190× after. If extended retention looks cheap relative to lake mirroring, a rate is wrong.
+
+### 9. Currency conversion
+
+- GBP display = `usd × FX_GBP`, EUR display = `usd × FX_EUR`
+- Verify rounding is to the nearest whole unit at default precision
+- Verify every displayed rate follows the selected currency — flag any hardcoded `$` or `£` in component copy
+
+### 10. Free source handling
+
+- Sources with `isFree: true` must never appear in billable totals
 - Total ingestion should include free sources; billable should exclude them
+- Cross-check `LOG_SOURCES[].isFree` against `ALWAYS_FREE_SOURCES` in `src/data/licenceBenefits.ts` and report any source the two files disagree about
 
-### 9. Edge Cases
+### 11. Licence benefits
 
-- 0 users: should not produce NaN or Infinity
-- 0.1 GB/day: should calculate correctly
-- 50,000 users: numbers should remain sensible
-- Negative input: should be rejected or clamped
+- The grant must be capped at actual eligible ingestion — never negative, never more than consumed
+- The grant must be applied exactly once. Verify it is not both removed from the volume *and* subtracted as a credit from the same total.
 
-## Output Format
+### 12. Edge cases
 
-For each check:
+- 0 users, 0.1 GB/day, and 50,000 users must all produce finite, sensible numbers
+- Negative and NaN input must be rejected or clamped, never propagated into totals
+
+## Output format
+
+Open with the constants you bound. Then for each check:
+
 ```
 ### Check Name
 Status: PASS ✓ / FAIL ✗
 Input: [values]
-Expected: [value]
+Expected: [formula, then the value it evaluates to]
 Actual: [what the code produces]
-Formula: [working]
-Location: [file:function if relevant]
+Location: [file:function]
 ```
 
-End with a summary count of PASS/FAIL.
+End with a PASS/FAIL summary count. If any expectation could not be derived from `src/data/pricing.ts`, say so explicitly rather than substituting a remembered value.
