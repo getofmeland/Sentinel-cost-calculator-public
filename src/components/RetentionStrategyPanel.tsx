@@ -120,33 +120,33 @@ export function RetentionStrategyPanel({
                 <tr>
                   <td className="px-3 py-2 text-light/60">Monthly retention cost</td>
                   <td className="px-3 py-2 text-right font-mono text-light">{fmtGbp(extendedMonthly, 2, fxRate)}/mo</td>
-                  <td className="px-3 py-2 text-right font-mono font-bold text-primary">{fmtGbp(mirrorMonthly, 2, fxRate)}/mo</td>
-                  <td className="px-3 py-2 text-right font-bold text-accent">
+                  <td className="px-3 py-2 text-right font-mono font-bold text-primary-text">{fmtGbp(mirrorMonthly, 2, fxRate)}/mo</td>
+                  <td className="px-3 py-2 text-right font-bold text-accent-text">
                     {savingPct > 0 ? `${savingPct}%` : '—'}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2 text-light/60">Max retention</td>
                   <td className="px-3 py-2 text-right text-light">2 years</td>
-                  <td className="px-3 py-2 text-right text-primary font-medium">12 years</td>
-                  <td className="px-3 py-2 text-right text-light/30">—</td>
+                  <td className="px-3 py-2 text-right text-primary-text font-medium">12 years</td>
+                  <td className="px-3 py-2 text-right text-light/60">—</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2 text-light/60">Query performance</td>
                   <td className="px-3 py-2 text-right text-light">Full KQL</td>
                   <td className="px-3 py-2 text-right text-light/60">Simple queries</td>
-                  <td className="px-3 py-2 text-right text-light/30">—</td>
+                  <td className="px-3 py-2 text-right text-light/60">—</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2 text-light/60">Query cost</td>
                   <td className="px-3 py-2 text-right text-light">Included</td>
                   <td className="px-3 py-2 text-right text-light/60">{queryRateLabel}/GB scanned</td>
-                  <td className="px-3 py-2 text-right text-light/30">—</td>
+                  <td className="px-3 py-2 text-right text-light/60">—</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p className="px-3 py-2 text-[10px] text-light/40 border-t border-white/10">
+          <p className="px-3 py-2 text-[10px] text-light/60 border-t border-white/10">
             Costs shown are steady-state (after {rampMonths} months). Actual costs ramp up as data accumulates.
           </p>
         </div>

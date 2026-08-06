@@ -76,8 +76,8 @@ function AppShell() {
               )}
             </div>
             <div className="text-right flex-shrink-0">
-              <p className="text-xs text-light/40 uppercase tracking-widest">Microsoft Sentinel</p>
-              <p className="text-xs text-light/40">UK mid-market · 100–2,000 users</p>
+              <p className="text-xs text-light/60 uppercase tracking-widest">Microsoft Sentinel</p>
+              <p className="text-xs text-light/60">UK mid-market · 100–2,000 users</p>
             </div>
           </div>
 
@@ -105,7 +105,7 @@ function AppShell() {
         <div className="relative">
           {isLoading && (
             <div className="absolute inset-0 bg-surface/60 z-20 flex items-center justify-center rounded-xl pointer-events-none">
-              <svg className="animate-spin h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24">
+              <svg className="animate-spin h-6 w-6 text-primary-text" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
@@ -116,7 +116,7 @@ function AppShell() {
       </main>
 
       <footer className="border-t border-white/8 mt-4 pb-16">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-center gap-1.5 text-xs text-light/30">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-center gap-1.5 text-xs text-light/60">
           <span>Built by</span>
           {brand.websiteUrl ? (
             <a

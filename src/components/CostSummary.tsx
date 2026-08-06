@@ -19,9 +19,9 @@ interface Props {
 }
 
 function SavingBadge({ pct }: { pct: number }) {
-  if (pct <= 0) return <span className="text-light/30">—</span>
+  if (pct <= 0) return <span className="text-light/60">—</span>
   return (
-    <span className="inline-flex items-center gap-0.5 text-primary font-semibold text-xs">
+    <span className="inline-flex items-center gap-0.5 text-primary-text font-semibold text-xs">
       <span aria-hidden="true">▼</span>
       <span className="sr-only">Saving </span>
       {pct.toFixed(1)}%
@@ -42,9 +42,9 @@ function CostCell({ usd, highlight, fxRate, displayCurrency, eurRate }: {
 function SavingCell({ usd, fxRate, displayCurrency, eurRate }: {
   usd: number; fxRate: number; displayCurrency: 'GBP' | 'USD' | 'EUR'; eurRate: number
 }) {
-  if (usd <= 0) return <td className="px-4 py-2.5 text-right text-light/30 text-sm">—</td>
+  if (usd <= 0) return <td className="px-4 py-2.5 text-right text-light/60 text-sm">—</td>
   return (
-    <td className="px-4 py-2.5 text-right font-mono text-sm text-primary font-medium">
+    <td className="px-4 py-2.5 text-right font-mono text-sm text-primary-text font-medium">
       −{fmtCurrency(usd, displayCurrency, fxRate, eurRate, 0)}
     </td>
   )
@@ -136,7 +136,7 @@ export function CostSummary({
   if (isEmpty) {
     return (
       <div className="bg-surface rounded-xl border border-white/10 shadow-sm px-6 py-10 text-center">
-        <p className="text-sm text-light/40">Select log sources above to see your total cost summary.</p>
+        <p className="text-sm text-light/60">Select log sources above to see your total cost summary.</p>
       </div>
     )
   }
@@ -200,10 +200,10 @@ export function CostSummary({
               <CostCell usd={analyticsMonthly} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
               <td className="px-4 py-2.5 text-right font-mono text-sm text-light/70">
                 {selectedTier
-                  ? <span className="text-primary">{fmt(commitmentGrossMonthly)}</span>
+                  ? <span className="text-primary-text">{fmt(commitmentGrossMonthly)}</span>
                   : fmt(analyticsMonthly)}
                 {commitmentAnalyticsSaving > 0 && (
-                  <span className="block text-[10px] text-primary/70 font-normal">
+                  <span className="block text-[10px] text-primary-text/70 font-normal">
                     −{fmt(commitmentAnalyticsSaving)} committed
                   </span>
                 )}
@@ -246,7 +246,7 @@ export function CostSummary({
 
             {/* Divider row — savings */}
             <tr className="bg-dark">
-              <td colSpan={4} className="px-4 py-1.5 text-[10px] font-semibold text-light/40 uppercase tracking-wider">
+              <td colSpan={4} className="px-4 py-1.5 text-[10px] font-semibold text-light/60 uppercase tracking-wider">
                 Savings applied
               </td>
             </tr>
@@ -256,10 +256,10 @@ export function CostSummary({
               <td className="px-4 py-2.5 text-light/70">
                 Defender for Servers P2
                 {!defenderEnabled && (
-                  <span className="ml-1.5 text-[10px] text-light/40">(not enabled)</span>
+                  <span className="ml-1.5 text-[10px] text-light/60">(not enabled)</span>
                 )}
               </td>
-              <td className="px-4 py-2.5 text-right text-light/30 text-sm">—</td>
+              <td className="px-4 py-2.5 text-right text-light/60 text-sm">—</td>
               <SavingCell usd={defenderSavedMonthlyUsd} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
               <SavingCell usd={commitmentDefenderCredit} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
             </tr>
@@ -269,31 +269,31 @@ export function CostSummary({
               <td className="px-4 py-2.5 text-light/70">
                 M365 E5 data grant (Entra ID &amp; MDCA)
                 {e5SavedMonthlyUsd === 0 && (
-                  <span className="ml-1.5 text-[10px] text-light/40">
+                  <span className="ml-1.5 text-[10px] text-light/60">
                     {licenceLabel === 'None / M365 E1' || licenceLabel === 'Microsoft 365 E3'
                       ? '(no qualifying licence)'
                       : '(no eligible sources)'}
                   </span>
                 )}
               </td>
-              <td className="px-4 py-2.5 text-right text-light/30 text-sm">—</td>
+              <td className="px-4 py-2.5 text-right text-light/60 text-sm">—</td>
               <SavingCell usd={e5SavedMonthlyUsd} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
               <SavingCell usd={commitmentE5Credit} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
             </tr>
 
             {/* Total rows */}
-            <tr className="border-t-2 border-white/10" style={{ background: '#252838' }}>
+            <tr className="border-t-2 border-white/10 bg-surface-raised">
               <td className="px-4 py-4 font-semibold text-light/50 text-xs uppercase tracking-widest">Monthly total</td>
               <td className="px-4 py-4 text-right">
                 <span className="text-2xl font-bold font-mono text-light">{fmt(paygTotal)}</span>
               </td>
               <td className="px-4 py-4 text-right">
-                <span className={`text-2xl font-bold font-mono ${totalSavings > 0 ? 'text-primary' : 'text-light'}`}>
+                <span className={`text-2xl font-bold font-mono ${totalSavings > 0 ? 'text-primary-text' : 'text-light'}`}>
                   {fmt(withSavingsTotal)}
                 </span>
               </td>
               <td className="px-4 py-4 text-right">
-                <span className={`text-2xl font-bold font-mono ${optimisedPct > 0 ? 'text-primary' : 'text-light'}`}>
+                <span className={`text-2xl font-bold font-mono ${optimisedPct > 0 ? 'text-primary-text' : 'text-light'}`}>
                   {fmt(commitmentOptimisedTotal)}
                 </span>
                 {optimisedPct > 0 && (
@@ -306,8 +306,8 @@ export function CostSummary({
 
             {/* vs PAYG row */}
             <tr>
-              <td className="px-4 py-2 text-xs text-light/40">vs PAYG</td>
-              <td className="px-4 py-2 text-right text-xs text-light/40">baseline</td>
+              <td className="px-4 py-2 text-xs text-light/60">vs PAYG</td>
+              <td className="px-4 py-2 text-right text-xs text-light/60">baseline</td>
               <td className="px-4 py-2 text-right"><SavingBadge pct={savingsPct} /></td>
               <td className="px-4 py-2 text-right"><SavingBadge pct={optimisedPct} /></td>
             </tr>
@@ -316,7 +316,7 @@ export function CostSummary({
       </div>
 
       {/* Footer note */}
-      <div className="px-6 py-3 border-t border-white/10 text-[11px] text-light/40 leading-relaxed">
+      <div className="px-6 py-3 border-t border-white/10 text-[11px] text-light/60 leading-relaxed">
         Licence benefits (E5 data grant and Defender for Servers) are billing credits — all data is still ingested.
         In the PAYG columns they are valued at the PAYG rate; in the commitment column at that tier's discounted rate,
         which is why the credit is smaller there. Each credit is applied once.

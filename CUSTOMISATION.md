@@ -13,15 +13,19 @@ const brand: BrandConfig = {
   websiteUrl: 'https://example.com', // Optional: wraps name/logo in a link
 
   colours: {
-    primary: '#a218ff',   // Main interactive colour (buttons, highlights, links)
-    accent:  '#ff2371',   // Secondary highlights, badges, savings indicators
-    navy:    '#001048',   // Deep dark backgrounds
-    dark:    '#191c26',   // Page background, sticky bar background
-    surface: '#1e2130',   // Card and panel backgrounds
-    light:   '#f3f1ef',   // Primary text colour
-    warning: '#ca792d',   // Warning states, Analytics tier highlights
-    danger:  '#b4190e',   // Error states
-    success: '#4d8965',   // Success states (e.g. form submission)
+    primary:       '#a218ff', // Main interactive colour (buttons, fills, borders)
+    accent:        '#ff2371', // Secondary highlights, badges, savings indicators
+    primaryText:   '#bf6bff', // Small text in the primary colour — see note below
+    accentText:    '#ff6b9b', // Small text in the accent colour — see note below
+    navy:          '#001048', // Deep dark backgrounds
+    dark:          '#191c26', // Page background, sticky bar background
+    surface:       '#1e2130', // Card and panel backgrounds
+    surfaceRaised: '#252838', // Nested panels, inputs, tab strips
+    surfaceInset:  '#2e3245', // Toggle tracks, progress bars
+    light:         '#f3f1ef', // Primary text colour
+    warning:       '#ca792d', // Warning states, cached-pricing badge
+    danger:        '#b4190e', // Error states
+    success:       '#4d8965', // Success states (e.g. form submission)
   },
 
   defaults: {
@@ -35,6 +39,21 @@ const brand: BrandConfig = {
   },
 }
 ```
+
+### Why there are separate `primaryText` and `accentText`
+
+Saturated brand colours rarely have enough contrast against a dark surface to be
+legible as small text. This project's own `primary` measures 3.13:1 and `accent`
+4.36:1 against `surface` — both below the WCAG AA threshold of 4.5:1 for body
+text. They are fine for backgrounds, borders, fills and large bold headings.
+
+So the palette carries lighter tints used **only** for small text. When you
+rebrand, check your two tints against your `surface` colour with any contrast
+checker and lighten them until both clear 4.5:1. If you skip this, the app will
+still work but will fail an accessibility audit on almost every figure it shows.
+
+The same applies to translucent text: `text-light/40` and below fail AA on these
+backgrounds, so anything conveying information uses `/60` or higher.
 
 ## Colour tips
 

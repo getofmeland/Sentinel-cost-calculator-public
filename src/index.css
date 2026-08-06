@@ -2,7 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Applied rather than hardcoded, so the pre-paint background follows the brand
+ * tokens. These were previously literal hex values that CUSTOMISATION.md never
+ * mentioned, so a documented rebrand left the old colour flashing on load and
+ * showing through overscroll on iOS and Android.
+ */
 body {
-  background-color: #191c26;
-  color: #f3f1ef;
+  @apply bg-dark text-light;
 }

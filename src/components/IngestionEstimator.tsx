@@ -369,7 +369,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
       {/* User count section */}
       <div className="px-6 py-4 border-b border-white/10 bg-dark">
         <label htmlFor="user-count-slider" className="block text-sm font-medium text-light mb-3">
-          User count: <span className="text-primary font-semibold">{userCount.toLocaleString()}</span>
+          User count: <span className="text-primary-text font-semibold">{userCount.toLocaleString()}</span>
         </label>
         <div className="flex items-center gap-4">
           <input
@@ -392,10 +392,10 @@ export function IngestionEstimator({ onPresetChange }: Props) {
             onBlur={handleInputBlur}
             onKeyDown={handleInputKeyDown}
             aria-label="Number of users (type a value)"
-            className="w-24 px-2 py-1.5 text-sm border border-white/15 rounded-md text-center font-mono bg-[#252838] text-light focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            className="w-24 px-2 py-1.5 text-sm border border-white/15 rounded-md text-center font-mono bg-surface-raised text-light focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
           />
         </div>
-        <div className="flex justify-between text-xs text-light/40 mt-1">
+        <div className="flex justify-between text-xs text-light/60 mt-1">
           <span>{MIN_USERS.toLocaleString()}</span>
           <span>{MAX_USERS.toLocaleString()}</span>
         </div>
@@ -403,7 +403,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
       {/* Environment Profile */}
       <div className="px-6 py-4 border-b border-white/10">
-        <p id="profile-label" className="text-[11px] font-semibold text-light/40 uppercase tracking-widest mb-2">
+        <p id="profile-label" className="text-[11px] font-semibold text-light/60 uppercase tracking-widest mb-2">
           Environment Profile
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-labelledby="profile-label">
@@ -420,10 +420,10 @@ export function IngestionEstimator({ onPresetChange }: Props) {
                   : 'border-white/10 bg-surface hover:border-white/20',
               ].join(' ')}
             >
-              <div className={`text-xs font-bold ${globalSize === sz.id ? 'text-primary' : 'text-light'}`}>
+              <div className={`text-xs font-bold ${globalSize === sz.id ? 'text-primary-text' : 'text-light'}`}>
                 {sz.id} — {sz.label}
               </div>
-              <div className="text-[10px] text-light/40 mt-0.5 leading-snug line-clamp-2">
+              <div className="text-[10px] text-light/60 mt-0.5 leading-snug line-clamp-2">
                 {sz.description}
               </div>
             </button>
@@ -449,7 +449,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
             <button
               type="button"
               onClick={() => handleGlobalSizeChange('L')}
-              className="flex-shrink-0 text-[11px] px-2.5 py-1 rounded border border-accent/50 text-accent hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="flex-shrink-0 text-[11px] px-2.5 py-1 rounded border border-accent/50 text-accent-text hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
               Apply Active
             </button>
@@ -489,7 +489,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           <button
             type="button"
             onClick={handleSelectAll}
-            className="text-xs px-2.5 py-1 rounded border border-primary text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+            className="text-xs px-2.5 py-1 rounded border border-primary text-primary-text hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
           >
             Select all
           </button>
@@ -534,7 +534,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           return (
             <div key={group}>
               <div className="px-6 py-1.5 bg-dark border-y border-white/10 sticky top-0 z-10">
-                <span className="text-[10px] font-semibold text-light/40 uppercase tracking-[0.12em]">
+                <span className="text-[10px] font-semibold text-light/60 uppercase tracking-[0.12em]">
                   {GROUP_LABELS[group]}
                 </span>
               </div>

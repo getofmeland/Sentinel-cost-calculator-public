@@ -53,7 +53,9 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
       setLastFetched(
         d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
       )
-      // isLive=false just means we're using static defaults — not an error worth surfacing
+      // isLive=false means every figure on the page comes from static defaults
+      // rather than current Azure pricing. That is not an error, but it is worth
+      // surfacing — RegionSelector shows it as a warning badge.
     } catch {
       setIsLive(false)
     } finally {

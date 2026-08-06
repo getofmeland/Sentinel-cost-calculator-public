@@ -40,7 +40,7 @@ const GROUP_ORDER: LogSourceGroup[] = [
 const REC_PILL_STYLES: Record<TierRecommendation, string> = {
   analytics: 'bg-primary text-white',
   'data-lake': 'bg-primary/15 text-light',
-  free: 'bg-primary/15 text-primary',
+  free: 'bg-primary/15 text-primary-text',
 }
 
 const REC_LABELS: Record<TierRecommendation, string> = {
@@ -107,7 +107,7 @@ export function TierPlacementTab({
         </div>
         <div className="bg-surface rounded-xl border border-white/10 shadow-sm px-5 py-4">
           <p className="text-xs font-semibold text-light/50 uppercase tracking-widest mb-1">Saving vs all-Analytics</p>
-          <p className={`text-lg font-semibold ${savingPct > 0 ? 'text-primary' : 'text-light/40'}`}>
+          <p className={`text-lg font-semibold ${savingPct > 0 ? 'text-primary-text' : 'text-light/60'}`}>
             {savingPct > 0
               ? <><span aria-hidden="true">▼ </span><span className="sr-only">Saving of </span>{savingPct.toFixed(0)}%</>
               : <><span aria-hidden="true">—</span><span className="sr-only">No saving</span></>
@@ -145,7 +145,7 @@ export function TierPlacementTab({
                 <Fragment key={group}>
                   <tr className="bg-dark border-y border-white/10">
                     <td colSpan={6} className="px-6 py-1.5">
-                      <span className="text-[10px] font-semibold text-light/40 uppercase tracking-[0.12em]">
+                      <span className="text-[10px] font-semibold text-light/60 uppercase tracking-[0.12em]">
                         {label}
                       </span>
                     </td>
@@ -181,11 +181,11 @@ export function TierPlacementTab({
                         </td>
                         <td className="px-3 py-3">
                           {row.source.isFree || recommended === 'free' ? (
-                            <span className="text-xs text-light/40">—</span>
+                            <span className="text-xs text-light/60">—</span>
                           ) : (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {isOverridden && (
-                                <span className="text-[10px] font-medium text-light/60 bg-[#2e3245] border border-white/15 rounded px-1 py-0.5">
+                                <span className="text-[10px] font-medium text-light/60 bg-surface-inset border border-white/15 rounded px-1 py-0.5">
                                   Modified
                                 </span>
                               )}

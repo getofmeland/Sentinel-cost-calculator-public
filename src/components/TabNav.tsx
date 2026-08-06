@@ -29,7 +29,7 @@ export function TabNav({ tabs, activeTab, onChange }: Props) {
 
   return (
     <div
-      className="bg-[#252838] rounded-lg p-1 grid sm:flex sm:w-fit gap-1"
+      className="bg-surface-raised rounded-lg p-1 grid sm:flex sm:w-fit gap-1"
       role="tablist"
       onKeyDown={handleKeyDown}
     >
