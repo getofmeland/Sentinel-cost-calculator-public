@@ -2,9 +2,34 @@
 <html lang="en-GB">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!-- Previously pointed at /vite.svg, which is not in the repo — the default
+         Vite mark, and a 404 in production. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <title>Sentinel Cost Calculator</title>
+    <meta
+      name="description"
+      content="Estimate Microsoft Sentinel costs: ingestion by log source, Analytics vs Data Lake tier placement, commitment tier comparison, retention, and M365 licence benefits."
+    />
+    <link rel="canonical" href="https://calculator.cloudsecurityinsider.com/" />
+
+    <!-- Link previews. The tool is meant to be shared from Cloud Security
+         Insider and previously rendered as a blank card. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Cloud Security Insider" />
+    <meta property="og:title" content="Microsoft Sentinel Cost Calculator" />
+    <meta
+      property="og:description"
+      content="Estimate Sentinel ingestion, tier placement, commitment tiers and retention — with live Azure pricing."
+    />
+    <meta property="og:url" content="https://calculator.cloudsecurityinsider.com/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Microsoft Sentinel Cost Calculator" />
+    <meta
+      name="twitter:description"
+      content="Estimate Sentinel ingestion, tier placement, commitment tiers and retention — with live Azure pricing."
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />

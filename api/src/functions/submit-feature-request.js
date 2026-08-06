@@ -46,23 +46,56 @@ app.http('submit-feature-request', {
       return { status: 200, headers, body: JSON.stringify({ success: true }) }
     }
 
-    // Validate required fields
-    if (!name || !email || !summary || !description) {
-      return { status: 400, headers, body: JSON.stringify({ success: false, error: 'Missing required fields.' }) }
+    const bad = message => ({
+      status: 400, headers, body: JSON.stringify({ success: false, error: message }),
+    })
+
+    // Type-check before touching string methods. Truthiness alone let a
+    // non-string through — a POST with "description": 123 passed both the
+    // presence and length checks, then threw on .trim() and returned an
+    // unhandled 500.
+    const isString = v => typeof v === 'string'
+    if (![name, email, summary, description].every(isString)) {
+      return bad('Missing required fields.')
     }
 
-    // Basic email validation
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return { status: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid email address.' }) }
+    const trimmed = {
+      name: name.trim(),
+      email: email.trim(),
+      summary: summary.trim(),
+      description: description.trim(),
+    }
+
+    if (!trimmed.name || !trimmed.email || !trimmed.summary || !trimmed.description) {
+      return bad('Missing required fields.')
+    }
+
+    // Server-side length caps mirroring the form's maxLength, which is trivially
+    // bypassed by posting directly. Without these a single request could open a
+    // 60,000-character issue.
+    const LIMITS = { name: 100, email: 200, summary: 100, description: 2000 }
+    for (const [field, max] of Object.entries(LIMITS)) {
+      if (trimmed[field].length > max) {
+        return bad(`${field.charAt(0).toUpperCase() + field.slice(1)} must be ${max} characters or fewer.`)
+      }
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed.email)) {
+      return bad('Invalid email address.')
     }
 
     // Anti-spam: reject if description is too short or identical to summary
-    if (description.length < 20) {
-      return { status: 400, headers, body: JSON.stringify({ success: false, error: 'Description must be at least 20 characters.' }) }
+    if (trimmed.description.length < 20) {
+      return bad('Description must be at least 20 characters.')
     }
-    if (description.trim() === summary.trim()) {
-      return { status: 400, headers, body: JSON.stringify({ success: false, error: 'Description must differ from the summary.' }) }
+    if (trimmed.description === trimmed.summary) {
+      return bad('Description must differ from the summary.')
     }
+
+    // Optional fields fall back to their defaults rather than being interpolated
+    // into the issue body as [object Object] or similar.
+    const safeCategory = isString(category) ? category.slice(0, 50) : 'Other'
+    const safePriority = isString(priority) ? priority.slice(0, 50) : 'Nice to have'
 
     // Rate limiting by IP
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
@@ -88,16 +121,16 @@ app.http('submit-feature-request', {
     }
 
     // Build issue
-    const categoryLabel = LABEL_MAP[category] ?? 'enhancement'
-    const priorityLabel = PRIORITY_MAP[priority] ?? 'nice-to-have'
-    const issueTitle = summary.slice(0, 100)
+    const categoryLabel = LABEL_MAP[safeCategory] ?? 'enhancement'
+    const priorityLabel = PRIORITY_MAP[safePriority] ?? 'nice-to-have'
+    const issueTitle = trimmed.summary.slice(0, 100)
     const issueBody = [
-      `**Submitted by:** ${name} (${email})`,
-      `**Category:** ${category}`,
-      `**Priority:** ${priority}`,
+      `**Submitted by:** ${trimmed.name} (${trimmed.email})`,
+      `**Category:** ${safeCategory}`,
+      `**Priority:** ${safePriority}`,
       '',
       '### Description',
-      description,
+      trimmed.description,
       '',
       `---`,
       `*Submitted via Sentinel Cost Calculator on ${new Date().toISOString()}*`,

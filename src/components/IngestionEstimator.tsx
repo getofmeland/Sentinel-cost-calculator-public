@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { LOG_SOURCES, LogSourceGroup, DAYS_PER_MONTH, RetentionStrategy } from '../data/pricing'
+import { LOG_SOURCES, DAYS_PER_MONTH, RetentionStrategy } from '../data/pricing'
+import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
 import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition } from '../data/logTiers'
 import { M365Licence, LICENCES } from '../data/licenceBenefits'
 import { summariseIngestion, estimateSourceGbPerDay, scaledDeviceCount } from '../utils/ingestion'
@@ -29,26 +30,6 @@ import {
   type ShareableState,
 } from '../utils/shareState'
 import { buildEstimateCsv, downloadCsv } from '../utils/csvExport'
-
-const GROUP_LABELS: Record<LogSourceGroup, string> = {
-  'identity': 'Identity & Entra',
-  'microsoft-defender': 'Microsoft Defender',
-  'microsoft-365': 'Microsoft 365',
-  'azure-platform': 'Azure Platform',
-  'network': 'Network',
-  'infrastructure': 'Server Workloads',
-  'third-party': 'Third-party & Custom',
-}
-
-const GROUP_ORDER: LogSourceGroup[] = [
-  'identity',
-  'microsoft-defender',
-  'microsoft-365',
-  'azure-platform',
-  'network',
-  'infrastructure',
-  'third-party',
-]
 
 type TabId = 'ingestion' | 'placement' | 'optimisation' | 'summary'
 

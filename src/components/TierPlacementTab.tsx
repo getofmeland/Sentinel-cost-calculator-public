@@ -2,7 +2,8 @@ import { Fragment } from 'react'
 import { SourceEstimateRow } from '../utils/ingestion'
 import { LogTierKey } from '../data/logTiers'
 import { TIER_PLACEMENT_DEFAULTS, TierRecommendation } from '../data/tierPlacement'
-import { DAYS_PER_MONTH, LogSourceGroup } from '../data/pricing'
+import { DAYS_PER_MONTH } from '../data/pricing'
+import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
 import { fmtGbp, fmtBoth } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
 
@@ -16,26 +17,6 @@ interface Props {
   dataLakeDailyCostUsd: number
   recommendedAnalyticsRateUsd: number
 }
-
-const GROUP_LABELS: Record<LogSourceGroup, string> = {
-  'identity': 'Identity & Entra',
-  'microsoft-defender': 'Microsoft Defender',
-  'microsoft-365': 'Microsoft 365',
-  'azure-platform': 'Azure Platform',
-  'network': 'Network',
-  'infrastructure': 'Infrastructure',
-  'third-party': 'Third-party & Custom',
-}
-
-const GROUP_ORDER: LogSourceGroup[] = [
-  'identity',
-  'microsoft-defender',
-  'microsoft-365',
-  'azure-platform',
-  'network',
-  'infrastructure',
-  'third-party',
-]
 
 const REC_PILL_STYLES: Record<TierRecommendation, string> = {
   analytics: 'bg-primary text-white',

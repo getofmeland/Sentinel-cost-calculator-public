@@ -1,6 +1,6 @@
 # Sentinel Cost Calculator
 
-A client-side cost calculator for Microsoft Sentinel SIEM deployments. Built for UK mid-market organisations (100–2,000 users) evaluating or optimising their Sentinel spend.
+A client-side cost calculator for Microsoft Sentinel SIEM deployments. Built for UK mid-market organisations evaluating or optimising their Sentinel spend, and usable from 100 up to 50,000 users.
 
 **Live tool:** [calculator.cloudsecurityinsider.com](https://calculator.cloudsecurityinsider.com)
 

@@ -63,7 +63,9 @@ const brand: BrandConfig = {
   },
   featureRequests: {
     enabled: true,
-    fallbackEmail: 'feedback@example.com',
+    // Rendered as a live mailto link when a submission fails, so leave this
+    // undefined rather than pointing users at a placeholder address.
+    fallbackEmail: undefined,
   },
 };
 
