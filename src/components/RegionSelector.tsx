@@ -55,12 +55,12 @@ export function RegionSelector({
             value={region}
             onChange={e => onRegionChange(e.target.value)}
             disabled={isLoading}
-            className="bg-[#1e2130] border border-white/20 text-light rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/40 disabled:opacity-60"
+            className="bg-surface border border-white/20 text-light rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/40 disabled:opacity-60"
           >
             {AZURE_REGION_GROUPS.map(({ group, regions }) => (
-              <optgroup key={group} label={group} className="bg-[#1e2130] text-light/60">
+              <optgroup key={group} label={group} className="bg-surface text-light/60">
                 {regions.map(r => (
-                  <option key={r.arm} value={r.arm} className="bg-[#1e2130] text-light">
+                  <option key={r.arm} value={r.arm} className="bg-surface text-light">
                     {r.label} ({r.arm})
                   </option>
                 ))}
@@ -92,12 +92,13 @@ export function RegionSelector({
 
         {/* Currency selector */}
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-light/70 whitespace-nowrap">Currency:</span>
-          <div className="flex rounded-md overflow-hidden border border-white/20">
+          <span id="currency-label" className="text-xs text-light/70 whitespace-nowrap">Currency:</span>
+          <div className="flex rounded-md overflow-hidden border border-white/20" role="group" aria-labelledby="currency-label">
             {CURRENCIES.map(c => (
               <button
                 key={c}
                 type="button"
+                aria-pressed={displayCurrency === c}
                 onClick={() => onCurrencyChange(c)}
                 className={`px-2.5 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 ${
                   displayCurrency === c
@@ -154,14 +155,18 @@ export function RegionSelector({
         )}
       </div>
 
-      {/* Status line */}
-      <div className="text-[11px] text-light/60">
+      {/* Status line. Whether rates are live changes every figure on the page,
+          so the cached state is a badge rather than a faint caption. */}
+      <div className="text-[11px]" role="status" aria-live="polite">
         {isLoading ? (
-          <span>Fetching live rates for {selectedLabel}…</span>
+          <span className="text-light/60">Fetching live rates for {selectedLabel}…</span>
         ) : isLive && lastFetched ? (
           <span className="text-light/80">Live · Updated {lastFetched}</span>
         ) : (
-          <span className="text-accent/80">Using cached rates</span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-warning/20 border border-warning/40 text-light font-medium">
+            <span aria-hidden="true">⚠</span>
+            Using cached rates — figures may not reflect current Azure pricing
+          </span>
         )}
       </div>
 
@@ -173,7 +178,7 @@ export function RegionSelector({
       )}
 
       {/* Info note */}
-      <p className="text-[10px] text-light/40 max-w-sm">
+      <p className="text-[10px] text-light/60 max-w-sm">
         Region determines where your Log Analytics workspace and Sentinel data reside. For UK data residency, use UK South or UK West.
       </p>
     </div>

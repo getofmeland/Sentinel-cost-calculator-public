@@ -25,7 +25,7 @@ export function TierComparison({ analyticsGbPerDay, dataLakeGbPerDay = 0 }: Prop
           Data Lake logs are priced separately at a flat rate.
         </p>
         {dataLakeGbPerDay > 0 && (
-          <p className="text-xs text-light/40 mt-1">
+          <p className="text-xs text-light/60 mt-1">
             <span className="font-medium">{dataLakeGbPerDay.toFixed(1)} GB/day</span> routed to Data Lake at ${pricing.dataLakeRateUsd.toFixed(2)}/GB — excluded from commitment tier pricing.
           </p>
         )}
@@ -42,7 +42,7 @@ export function TierComparison({ analyticsGbPerDay, dataLakeGbPerDay = 0 }: Prop
       </div>
 
       {/* Footer note */}
-      <div className="px-6 pb-5 text-xs text-light/40 space-y-1">
+      <div className="px-6 pb-5 text-xs text-light/60 space-y-1">
         <p>
           * The 50 GB/day preview tier ({BILLING_RULES.promoTierExpiryDate.replace(/-/g, '\u2011')} expiry) is available
           during the preview period; the minimum commitment tier thereafter is{' '}

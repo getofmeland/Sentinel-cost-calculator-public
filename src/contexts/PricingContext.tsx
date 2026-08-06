@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { PricingBundle, STATIC_PRICING_BUNDLE, EXCHANGE_RATE_USD_TO_GBP } from '../data/pricing'
+import { PricingBundle, STATIC_PRICING_BUNDLE, EXCHANGE_RATE_USD_TO_GBP, EXCHANGE_RATE_USD_TO_EUR } from '../data/pricing'
 import { fetchSentinelPricing, clearRegionCache, getRegionLabel } from '../services/azurePricing'
+import { fetchFxRates } from '../services/fxRates'
 import { CurrencyCode } from '../utils/currency'
 import brand from '../config/brand'
 
@@ -19,6 +20,10 @@ interface PricingContextValue {
   lastFetched: string | null
   onRefresh: () => void
   pricing: PricingBundle
+  /** True when the displayed FX rates came from the live provider rather than the static fallback */
+  fxIsLive: boolean
+  /** Publication date of the live rates, when the provider reported one */
+  fxDate: string | null
 }
 
 const PricingContext = createContext<PricingContextValue | null>(null)
@@ -27,11 +32,16 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
   const [region, setRegion] = useState(brand.defaults.region)
   const [fxRate, setFxRate] = useState(EXCHANGE_RATE_USD_TO_GBP)
   const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>(brand.defaults.currency)
-  const [eurRate, setEurRate] = useState(0.92)
+  const [eurRate, setEurRate] = useState(EXCHANGE_RATE_USD_TO_EUR)
   const [pricing, setPricing] = useState<PricingBundle>(STATIC_PRICING_BUNDLE)
   const [isLoading, setIsLoading] = useState(false)
   const [isLive, setIsLive] = useState(false)
   const [lastFetched, setLastFetched] = useState<string | null>(null)
+  const [fxIsLive, setFxIsLive] = useState(false)
+  const [fxDate, setFxDate] = useState<string | null>(null)
+  // Once the user edits a rate by hand their value wins, and a later live
+  // fetch must not silently overwrite it.
+  const [fxOverridden, setFxOverridden] = useState(false)
 
   const loadPricing = useCallback(async (arm: string) => {
     setIsLoading(true)
@@ -43,7 +53,9 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
       setLastFetched(
         d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
       )
-      // isLive=false just means we're using static defaults — not an error worth surfacing
+      // isLive=false means every figure on the page comes from static defaults
+      // rather than current Azure pricing. That is not an error, but it is worth
+      // surfacing — RegionSelector shows it as a warning badge.
     } catch {
       setIsLive(false)
     } finally {
@@ -55,12 +67,36 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
     loadPricing(region)
   }, [region, loadPricing])
 
+  // Exchange rates are global, not per-region, so this runs once on mount.
+  useEffect(() => {
+    let cancelled = false
+    fetchFxRates().then(rates => {
+      if (cancelled || fxOverridden) return
+      setFxRate(rates.gbp)
+      setEurRate(rates.eur)
+      setFxIsLive(rates.isLive)
+      setFxDate(rates.date)
+    })
+    return () => { cancelled = true }
+    // fxOverridden is deliberately not a dependency: this should fire once,
+    // and the guard inside covers the race where the user edits mid-flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function handleRegionChange(arm: string) {
     setRegion(arm)
   }
 
   function handleFxRateChange(rate: number) {
     setFxRate(rate)
+    setFxOverridden(true)
+    setFxIsLive(false)
+  }
+
+  function handleEurRateChange(rate: number) {
+    setEurRate(rate)
+    setFxOverridden(true)
+    setFxIsLive(false)
   }
 
   function handleRefresh() {
@@ -77,12 +113,14 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
     displayCurrency,
     onCurrencyChange: setDisplayCurrency,
     eurRate,
-    onEurRateChange: setEurRate,
+    onEurRateChange: handleEurRateChange,
     isLoading,
     isLive,
     lastFetched,
     onRefresh: handleRefresh,
     pricing,
+    fxIsLive,
+    fxDate,
   }
 
   return (

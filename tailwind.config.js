@@ -11,9 +11,15 @@ export default {
       colors: {
         'primary':  '#a218ff',
         'accent':   '#ff2371',
+        // Accessible tints for small text — the saturated brand colours fall
+        // below WCAG AA against the dark surface. See brand.ts for the ratios.
+        'primary-text': '#bf6bff',
+        'accent-text':  '#ff6b9b',
         'navy':     '#001048',
         'dark':     '#191c26',
         'surface':  '#1e2130',
+        'surface-raised': '#252838',
+        'surface-inset':  '#2e3245',
         'light':    '#f3f1ef',
         'warning':  '#ca792d',
         'danger':   '#b4190e',

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { SOURCE_TABLE_MAPPINGS, resolveWorkloadMappingId } from '../data/sentinelTables'
+import { useFocusTrap } from '../utils/useFocusTrap'
 
 interface Props {
   /** Source ID from LOG_SOURCES, or a server workload ID (ws-* / lx-*) */
@@ -23,7 +24,8 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
   const [flipUp, setFlipUp] = useState(false)
 
   const buttonRef = useRef<HTMLButtonElement>(null)
-  const popoverRef = useRef<HTMLDivElement>(null)
+  // Mutable: the popover node is shared with the focus trap's ref below.
+  const popoverRef = useRef<HTMLDivElement | null>(null)
 
   // Compute position anchored to the info button
   const computePosition = useCallback(() => {
@@ -78,21 +80,20 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  // Close on Escape; reposition on scroll/resize
+  // The popover is portalled to the end of <body>, so its content sits nowhere
+  // near the trigger in the document's tab order — a keyboard user pressing Tab
+  // after opening it landed on whatever follows in the page, not on the
+  // popover's links or close button. Trapping focus is what makes the content
+  // reachable at all, and the hook restores focus to the trigger on close.
+  const trapRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false))
+
+  // Reposition on scroll/resize
   useEffect(() => {
     if (!open) return
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false)
-        buttonRef.current?.focus()
-      }
-    }
     function handleResize() { computePosition() }
-    document.addEventListener('keydown', handleKey)
     window.addEventListener('resize', handleResize)
     window.addEventListener('scroll', handleResize, true)
     return () => {
-      document.removeEventListener('keydown', handleKey)
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('scroll', handleResize, true)
     }
@@ -136,9 +137,12 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
 
       {open && pos && createPortal(
         <div
-          ref={popoverRef}
+          ref={node => {
+            popoverRef.current = node
+            trapRef.current = node
+          }}
           role="dialog"
-          aria-modal="false"
+          aria-modal="true"
           aria-label={`Sentinel table reference — ${sourceName}`}
           style={{
             position: 'fixed',
@@ -157,7 +161,7 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
                 <p className="font-semibold text-white text-[13px] leading-snug truncate">
                   {sourceName}
                 </p>
-                <p className="text-light/40 text-[10px] mt-0.5">
+                <p className="text-light/60 text-[10px] mt-0.5">
                   Connector: {mapping.connectorName}
                 </p>
               </div>
@@ -165,7 +169,7 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="flex-shrink-0 text-light/30 hover:text-light/70 transition-colors mt-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                className="flex-shrink-0 text-light/60 hover:text-light/70 transition-colors mt-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
               >
                 ✕
               </button>
@@ -174,7 +178,7 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
 
           {/* Tables */}
           <div className="px-4 pt-2.5 pb-1">
-            <p className="text-[9px] font-semibold text-light/30 uppercase tracking-widest mb-1.5">
+            <p className="text-[9px] font-semibold text-light/60 uppercase tracking-widest mb-1.5">
               Tables populated
             </p>
             <ul className="space-y-1.5">
@@ -189,7 +193,7 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
                   >
                     ↗ {table.name}
                   </a>
-                  <span className="text-light/40 text-[10px] leading-relaxed">{table.description}</span>
+                  <span className="text-light/60 text-[10px] leading-relaxed">{table.description}</span>
                 </li>
               ))}
             </ul>
@@ -197,7 +201,7 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
               <button
                 type="button"
                 onClick={() => setShowAllTables(v => !v)}
-                className="mt-1.5 text-[10px] text-light/40 hover:text-light/70 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                className="mt-1.5 text-[10px] text-light/60 hover:text-light/70 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
               >
                 {showAllTables ? '− Show fewer tables' : `+ ${hiddenCount} more table${hiddenCount === 1 ? '' : 's'}…`}
               </button>
@@ -207,14 +211,14 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
           {/* KQL Example */}
           <div className="mx-3 my-2 rounded-lg border border-white/8 bg-black/30 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/6">
-              <span className="text-[9px] font-semibold text-light/30 uppercase tracking-widest">
+              <span className="text-[9px] font-semibold text-light/60 uppercase tracking-widest">
                 KQL example
               </span>
               <button
                 type="button"
                 onClick={handleCopy}
                 aria-label="Copy KQL example to clipboard"
-                className="text-[10px] text-light/40 hover:text-light/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded px-1"
+                className="text-[10px] text-light/60 hover:text-light/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded px-1"
               >
                 {copied ? '✓ Copied' : '📋 Copy'}
               </button>
@@ -240,7 +244,7 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
               href={mapping.docsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[10px] text-light/40 hover:text-light/70 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+              className="inline-flex items-center gap-1 text-[10px] text-light/60 hover:text-light/70 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
             >
               📖 Connector documentation
             </a>

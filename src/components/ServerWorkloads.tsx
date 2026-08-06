@@ -102,7 +102,7 @@ export function ServerWorkloads({
               sourceName={workload.name}
             />
             {isCustomSize && (
-              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent font-semibold">
+              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent-text font-semibold">
                 Custom
               </span>
             )}
@@ -141,7 +141,7 @@ export function ServerWorkloads({
                   'px-1.5 py-0.5 text-[10px] rounded border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary',
                   size === s.id
                     ? 'bg-primary/80 text-white border-primary'
-                    : 'border-white/10 text-light/40 hover:bg-white/5',
+                    : 'border-white/10 text-light/60 hover:bg-white/5',
                 ].join(' ')}
               >
                 {s.id}
@@ -150,7 +150,7 @@ export function ServerWorkloads({
           </div>
 
           {/* GB/day */}
-          <span className={`text-xs font-mono flex-shrink-0 w-20 text-right ${count > 0 ? 'text-light' : 'text-light/30'}`}>
+          <span className={`text-xs font-mono flex-shrink-0 w-20 text-right ${count > 0 ? 'text-light' : 'text-light/60'}`}>
             {count > 0 && row ? `${row.gbPerDay.toFixed(2)} GB/day` : '—'}
           </span>
         </div>
@@ -168,7 +168,7 @@ export function ServerWorkloads({
   return (
     <div>
       <div className="px-6 py-1.5 bg-dark border-y border-white/10 sticky top-0 z-10">
-        <span className="text-[10px] font-semibold text-light/40 uppercase tracking-[0.12em]">
+        <span className="text-[10px] font-semibold text-light/60 uppercase tracking-[0.12em]">
           Server Workloads
         </span>
       </div>
@@ -183,7 +183,7 @@ export function ServerWorkloads({
       {/* Windows servers */}
       <div className="border-b border-white/10">
         <div className="px-4 py-2 bg-dark/20">
-          <span className="text-[10px] font-semibold text-light/30 uppercase tracking-widest">Windows Servers</span>
+          <span className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">Windows Servers</span>
         </div>
         {windowsWorkloads.map(renderWorkload)}
 
@@ -195,8 +195,8 @@ export function ServerWorkloads({
             aria-expanded={advancedExpanded}
             className="w-full px-4 py-2 flex items-center gap-2 text-left hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-inset"
           >
-            <span className={`text-[10px] text-light/30 transition-transform ${advancedExpanded ? 'rotate-90' : ''}`}>▶</span>
-            <span className="text-[10px] font-semibold text-light/30 uppercase tracking-widest">
+            <span className={`text-[10px] text-light/60 transition-transform ${advancedExpanded ? 'rotate-90' : ''}`}>▶</span>
+            <span className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">
               Advanced workloads — DHCP, Print Server, Exchange
             </span>
           </button>
@@ -207,7 +207,7 @@ export function ServerWorkloads({
       {/* Linux servers */}
       <div className="border-b border-white/10">
         <div className="px-4 py-2 bg-dark/20">
-          <span className="text-[10px] font-semibold text-light/30 uppercase tracking-widest">Linux Servers</span>
+          <span className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">Linux Servers</span>
         </div>
         {linuxWorkloads.map(renderWorkload)}
       </div>
@@ -222,13 +222,13 @@ export function ServerWorkloads({
             </span>
           </div>
           {windowsGbPerDay > 0 && (
-            <div className="flex justify-between text-[11px] text-light/40">
+            <div className="flex justify-between text-[11px] text-light/60">
               <span>Windows Security Events</span>
               <span className="font-mono">{windowsGbPerDay.toFixed(2)} GB/day</span>
             </div>
           )}
           {linuxGbPerDay > 0 && (
-            <div className="flex justify-between text-[11px] text-light/40">
+            <div className="flex justify-between text-[11px] text-light/60">
               <span>Linux Syslog</span>
               <span className="font-mono">{linuxGbPerDay.toFixed(2)} GB/day</span>
             </div>

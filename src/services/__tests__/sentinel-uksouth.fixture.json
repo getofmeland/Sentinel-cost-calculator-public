@@ -1,0 +1,196 @@
+{
+  "Items": [
+    {
+      "meterName": "300 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 1000,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "300 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Pay-as-you-go Analysis",
+      "retailPrice": 5.38,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Pay-as-you-go",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "100 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 370,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "100 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "50000 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 128250,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "50000 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "50 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 201.5625,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "50 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "400 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 1296.66,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "400 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Solution for SAP Applications Hourly",
+      "retailPrice": 2,
+      "unitOfMeasure": "1/Hour",
+      "armRegionName": "uksouth",
+      "skuName": "Solution for SAP Applications",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "5000 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 14437.5,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "5000 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Free Benefit - M365 Defender Analysis",
+      "retailPrice": 0,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Free Benefit - M365 Defender",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Data processing Data Processed",
+      "retailPrice": 0.125,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Data processing",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Data lake query Data Analyzed",
+      "retailPrice": 0.00625,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Data lake query",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Basic Logs Analysis",
+      "retailPrice": 1.13,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Basic Logs",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Classic Auxiliary Logs Analysis",
+      "retailPrice": 0.0625,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Classic Auxiliary Logs Analysis",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Free Trial Analysis",
+      "retailPrice": 0,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Free Trial",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "1000 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 3100,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "1000 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "25000 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 66812.5,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "25000 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "200 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 685,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "200 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "10000 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 27800,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "10000 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Advanced Data Insights",
+      "retailPrice": 0.1875,
+      "unitOfMeasure": "1 Hour",
+      "armRegionName": "uksouth",
+      "skuName": "Advanced Data Insights",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "2000 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 6000,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "2000 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "500 GB Commitment Tier Capacity Reservation",
+      "retailPrice": 1581.25,
+      "unitOfMeasure": "1/Day",
+      "armRegionName": "uksouth",
+      "skuName": "500 GB Commitment Tier",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Data lake ingestion Data Processed",
+      "retailPrice": 0.0625,
+      "unitOfMeasure": "1 GB",
+      "armRegionName": "uksouth",
+      "skuName": "Data lake ingestion",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Graph",
+      "retailPrice": 3.75,
+      "unitOfMeasure": "1 Hour",
+      "armRegionName": "uksouth",
+      "skuName": "Graph",
+      "productName": "Sentinel"
+    },
+    {
+      "meterName": "Data lake storage Data Stored",
+      "retailPrice": 0.024,
+      "unitOfMeasure": "1 GB/Month",
+      "armRegionName": "uksouth",
+      "skuName": "Data lake storage",
+      "productName": "Sentinel"
+    }
+  ]
+}

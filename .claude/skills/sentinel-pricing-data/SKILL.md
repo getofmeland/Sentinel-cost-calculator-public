@@ -5,137 +5,99 @@ description: Use when working with Microsoft Sentinel pricing calculations, inge
 
 # Microsoft Sentinel Pricing Data Skill
 
-## Current Pricing (UK South, Simplified Tiers, as of March 2026)
+## Where the numbers live — read these first
 
-### Analytics Tier — Pay-As-You-Go
-- Approximately $5.20 per GB ingested (combined Log Analytics + Sentinel)
-- Default 90-day interactive retention included at no extra charge
-- Extended retention beyond 90 days up to 2 years: ~$0.023/GB/month (Azure Monitor archive rate)
+**`src/data/pricing.ts` is the single source of truth for every rate.** Read it at the start of any pricing task and use what it says.
 
-### Analytics Tier — Commitment Tiers
+This file used to carry its own copy of the whole price book. The copy drifted: it advertised rates that were roughly 25% below the real UK South figures and an extended-retention rate that was wrong by more than fivefold, and anyone who trusted it inherited those errors. So it no longer restates rates. It covers only the things the code cannot tell you.
 
-| Tier (GB/day) | Approx. Daily Cost (USD) | Effective $/GB | Savings vs PAYG |
-|---|---|---|---|
-| 50 (preview promo) | ~$190 | ~$3.80 | ~27% |
-| 100 | ~$335 | ~$3.35 | ~36% |
-| 200 | ~$630 | ~$3.15 | ~39% |
-| 500 | ~$1,460 | ~$2.92 | ~44% |
-| 1,000 | ~$2,700 | ~$2.70 | ~48% |
-| 2,000 | ~$5,080 | ~$2.54 | ~51% |
-| 5,000 | ~$12,150 | ~$2.43 | ~53% |
+| What you need | Where it is |
+|---|---|
+| PAYG rate, commitment tiers, Data Lake rates, retention rates, FX | `src/data/pricing.ts` |
+| Tier definitions, free retention windows, retention options | `src/data/logTiers.ts` |
+| Licence grant rates and eligibility | `src/data/licenceBenefits.ts` |
+| Per-source volume ranges and free flags | `LOG_SOURCES` in `src/data/pricing.ts` |
+| Server workload volumes | `src/data/serverWorkloads.ts` |
+| Tier placement recommendations | `src/data/tierPlacement.ts` |
+| Compliance retention presets | `src/data/compliancePresets.ts` |
+| Source → Sentinel table mapping | `src/data/sentinelTables.ts` |
 
-### Data Lake Tier (formerly Auxiliary Logs)
-- Ingestion: $0.15/GB (combined $0.05 data lake ingestion + $0.10 data processing)
-- Long-term retention: $0.02/GB/month (billed on compressed volume)
-- Compression ratio: 6:1 (600 GB raw ≈ 100 GB billed)
-- Query cost: $0.005/GB of data scanned (uncompressed)
-- Maximum retention: 12 years
-- Interactive query window: 30 days
-- GA since 30 September 2025
+Commitment tiers derive their effective rate and saving from the published daily cost. Never hardcode those two — read `effectiveRateUsd` and `savingsVsPayg`, or recompute them as `dailyCostUsd / gbPerDay` and `1 − effectiveRateUsd / PAYG`.
 
-### Key Billing Rules
-- Commitment tiers apply to Analytics tier only, not Data Lake
-- Overage above commitment is billed at the SAME discounted tier rate, NOT PAYG
-- Downgrade requires 31-day wait; upgrades are immediate
-- Tiers are per-workspace unless on a dedicated cluster
-- Monthly cost = daily cost × 30.44 (average days per month)
-- Data Lake compression is automatic — billing on compressed size for retention
-- Data Lake queries are billed on uncompressed (raw) size
+## Verifying rates against Microsoft
 
-### Free Data Sources (no Sentinel ingestion charge)
-- Azure Activity Logs
-- Office 365 Audit Logs (partial — management activity is free)
-- Microsoft Defender XDR incident data (via unified connector)
+The rates in `pricing.ts` are UK South, verified against the Azure Retail Prices API. To re-verify:
 
-### Licence Benefits (Billing Credits)
-All data is ingested into Sentinel for full detection coverage. Licence benefits create **billing credits** that reduce the Analytics GB charged — they do NOT reduce ingestion volume.
+```
+https://prices.azure.com/api/retail/prices?$filter=serviceName eq 'Sentinel' and armRegionName eq 'uksouth'
+```
 
-#### M365 E5 Data Grant
-- Qualifying licences: M365 E5, M365 E3 + E5 Security
-- Rate: 5 MB (0.005 GB) per user per day
-- **Eligible sources only**: Entra ID Sign-in & Audit, Microsoft Defender for Cloud Apps (MDCA)
-- Credit = min(userCount × 0.005, eligible Analytics GB/day)
-- MDE, MDI, MDO, and other sources do NOT qualify for the E5 data grant
+Two traps that have already caused real bugs:
 
-#### Defender for Servers Plan 2
-- Rate: 500 MB (0.5 GB) per enrolled server per day
-- Eligible sources: Windows Security Events, Linux Syslog (Analytics tier only)
-- Credit = min(enrolledServers × 0.5, Windows + Linux Analytics GB/day)
-- Requires Azure Monitor Agent with Defender for Servers P2 active
+- **`contains()` is case-sensitive.** The meters are `Data lake ingestion`, `Data lake query`, `Data lake storage` — lowercase "lake". A filter for `'Data Lake'` silently returns nothing.
+- **Lake ingestion is two meters.** `Data lake ingestion Data Processed` *plus* `Data processing Data Processed`. The second does not contain the phrase "Data lake", so no lake-named filter will return it. Using only the first understates ingestion roughly threefold.
 
-#### Always-Free Sources (no billing regardless of licence)
-- Azure Activity Logs — modelled in the estimator
-- O365 Management Activity — management audit records
-- Defender XDR / MDE / MDI / MDO / MDCA alert metadata — alert tables are free; raw telemetry is billable
-- Defender for Cloud alerts — security alert records
+Regional rates differ substantially — UK South runs roughly 1.25× the East US base — so re-verify per region rather than scaling.
 
-#### Billable Analytics GB/day
-`billableAnalyticsGbPerDay = max(0, analyticsGbPerDay - e5GrantGbPerDay - defenderServersGrantGbPerDay)`
-Commitment tier selection and tier comparison must use the **billable** (post-credit) GB/day, not total analytics GB/day.
+Analytics extended retention is billed under `serviceName eq 'Log Analytics'` (meter `Analytics Logs Data Retention`), not under Sentinel, so it will not appear in the query above.
 
-## Log Source Tier Placement Recommendations
+## Billing rules that are not in the rate table
 
-### Analytics Tier (Primary — Real-Time Detection)
+- Commitment tiers apply to the Analytics tier only, never to Data Lake.
+- Overage above a commitment is billed at that tier's own discounted rate, **not** at PAYG. This is the most commonly mis-modelled rule.
+- Committing above actual usage is not prorated — you pay the full commitment.
+- Lowering a tier is only permitted every 31 days; raising it is immediate.
+- Tiers are per-workspace unless on a dedicated cluster.
+- Monthly cost = daily cost × `DAYS_PER_MONTH`.
+- Data Lake retention bills on the *compressed* volume; queries bill on the *uncompressed* volume scanned.
+- Analytics data mirrored to the lake incurs no second ingestion charge — storage only.
 
-| Log Source | GB/day per 1,000 users | Reason |
-|---|---|---|
-| Entra ID Sign-in & Audit | 0.5 – 2.0 | Identity-based detection, impossible travel, brute force |
-| Defender for Endpoint (MDE) | 2.0 – 8.0 | Core EDR telemetry for incident detection |
-| Defender for Identity (MDI) | 0.5 – 2.0 | Lateral movement, credential attacks |
-| Defender for Office 365 (MDO) | 0.5 – 1.5 | Phishing, BEC, malicious attachment detection |
-| Defender for Cloud Apps (MDCA) | 0.5 – 2.0 | Shadow IT, OAuth app abuse |
-| Windows Security Events (Common) | 1.0 – 3.0 | Logon events, process creation — use Common not All Events |
-| Office 365 Audit Logs | 0.2 – 1.0 | Management activity for insider threat detection |
+### Retention is a flow-to-stock conversion
 
-### Data Lake Tier (Secondary — Investigation & Forensics)
+Ingesting G GB/day and holding it D extra days leaves `G × D` GB at rest, so the monthly charge is `G × D × ratePerGbMonth`. The day count and the per-month rate are not a units error — this is the intended formula.
 
-| Log Source | GB/day per 1,000 users | Reason |
-|---|---|---|
-| Azure Firewall / NSG Flow Logs | 5.0 – 30.0 | High volume, queried during network investigations only |
-| DNS Logs | 1.0 – 5.0 | C2 detection via summary rules, bulk forensic queries |
-| Third-party Firewall | 2.0 – 15.0 | Investigation context, same as Azure Firewall |
-| Linux Syslog | 0.5 – 3.0 | Unless Linux-heavy with active detection rules |
-| Custom Application Logs | 0.5 – 5.0 | Compliance/audit, rarely queried real-time |
+Take the free window from `getTierDefinition(tier).freeRetentionDays` rather than assuming 90.
 
-### Free (Tier Irrelevant)
-- Azure Activity Logs: 0.1 – 0.5 GB/day per 1,000 users — always free
+Note that "extended interactive retention" and "archive" are different products at very different rates. The strategy labelled *Analytics Extended Retention* keeps full KQL, so it is interactive retention. Conflating the two once understated two-year retention costs by more than fivefold.
 
-### Tier Placement Notes
-- Windows Security Events "All Events" can push 5+ GB/day. Recommend Common for Analytics, verbose to Data Lake via DCR.
-- Tier placement is a recommendation with override. Some customers run detection rules against DNS/firewall.
-- Summary Rules aggregate Data Lake into Analytics for specific detections (IOC matching etc).
+## Licence benefits are billing credits, not volume reductions
 
-## Compliance Retention Presets
+All data is still ingested for full detection coverage. The grants reduce the Analytics GB *charged*.
 
-### ISO 27001 Standard
-- Analytics: 90 days | Data Lake: 1 year
-- Basis: A.8.15 requires logs retained and reviewed. 12 months industry standard for audit cycle.
+```
+billableAnalyticsGbPerDay = max(0, analyticsGbPerDay − e5Grant − defenderServersGrant)
+```
 
-### NHS DSPT / CAF-Aligned
-- Analytics: 90 days | Data Lake: 2 years
-- Basis: CAF demands monitoring/logging evidence. 2 years covers DSPT audit cycle + historical.
+Read the grant rates and the eligible-source sets from `src/data/licenceBenefits.ts` — both the rate and the eligibility list have been wrong in the past, so do not assume either.
 
-### FCA Regulated (General)
-- Analytics: 90 days | Data Lake: 3 years
-- Basis: SYSC 9.1 orderly records. 3 years from case closure for incident/breach logs.
+**Apply each grant exactly once.** If a commitment tier is sized on the post-grant volume, do not also subtract the grant's cash value from the resulting total. That double-count understated the headline "optimised" figure by the full value of the customer's licence benefit.
 
-### FCA MiFID II
-- Analytics: 180 days | Data Lake: 5 years (7 if FCA requests)
-- Basis: MiFID records min 5 years. Communications 5-7 years.
+## Tier placement
 
-### PCI DSS 4.0
-- Analytics: 90 days | Data Lake: 1 year
-- Basis: Req 10.7 — 12 months history, 3 months immediately available.
+`src/data/tierPlacement.ts` holds the recommendation and the rationale for every source, and is wired into the default tier each source receives. Read it rather than reasoning from scratch.
 
-## Calculation Instructions
+The shape of the advice: real-time detection sources (identity, EDR, email) belong on Analytics; high-volume investigative sources (firewall, flow logs, DNS, general syslog) belong on Data Lake, with Summary Rules aggregating what detection genuinely needs back into Analytics.
 
-1. Separate sources into Analytics and Data Lake using placement recommendations
-2. Sum Analytics GB/day total (all Analytics-tier sources)
-3. Compute licence benefits (E5 grant + Defender for Servers) → billable Analytics GB/day
-4. Apply commitment tier pricing to **billable** Analytics GB/day (not total)
-5. Sum Data Lake GB/day — apply $0.15/GB flat rate
-6. Calculate retention: Analytics extended ($0.023/GB/month beyond 90 days) + Data Lake ($0.02/GB/month compressed)
-7. Total monthly = Analytics ingestion + Data Lake ingestion + retention costs
-8. Savings = (e5GrantGbPerDay + defenderServersGrantGbPerDay) × DAYS_PER_MONTH × paygRateUsd
-9. Show USD and GBP (default FX 0.79)
-10. Show savings vs all-Analytics PAYG baseline
+Placement is a recommendation with a user override — some customers do run detection against DNS or firewall data.
+
+## Compliance retention
+
+Read `src/data/compliancePresets.ts` for the current periods and their stated basis.
+
+When quoting a regulatory requirement, be precise about scope. The five-year record-keeping rule in FCA SYSC 9.1.2R applies to the MiFID business of common platform firms; SYSC 9.1.1R sets no specific period for firms outside that scope. Overstating a retention obligation to a regulated customer is a credibility problem, not just a costing one.
+
+## Calculation order
+
+1. Split sources into Analytics and Data Lake using the placement defaults.
+2. Sum Analytics GB/day and Data Lake GB/day separately, excluding free sources from billable totals.
+3. Compute licence grants → billable Analytics GB/day.
+4. Select the commitment tier, applying overage at the tier rate.
+5. Apply the Data Lake ingestion rate to lake volume.
+6. Add retention for both tiers, using each tier's own free window.
+7. Apply the licence credit exactly once — see the warning above.
+8. Present in the user's selected currency; every displayed rate must follow that selection.
+9. Show the saving against an all-Analytics PAYG baseline.
+
+## Presenting figures
+
+These are planning estimates built on public list pricing. Real invoices differ with negotiated rates, region, and actual ingestion. Say so when presenting totals — the ranges behind them are wide.

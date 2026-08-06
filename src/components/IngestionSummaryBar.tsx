@@ -41,16 +41,16 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
           <p className="text-xs opacity-50 mt-1">GB/day across all sources</p>
         </div>
         <div className="flex-1 rounded-lg px-4 py-4 bg-primary/10 border border-primary/30">
-          <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-widest">Free</p>
-          <p className="text-4xl font-bold font-mono mt-1 leading-none text-primary">{summary.freeGbPerDay.toFixed(2)}</p>
+          <p className="text-[10px] font-semibold text-primary-text/60 uppercase tracking-widest">Free</p>
+          <p className="text-4xl font-bold font-mono mt-1 leading-none text-primary-text">{summary.freeGbPerDay.toFixed(2)}</p>
           <p className="text-xs text-light/50 mt-1">GB/day no charge</p>
         </div>
-        <div className="flex-1 rounded-lg px-4 py-4 bg-[#252838] border border-white/10">
-          <p className="text-[10px] font-semibold text-light/40 uppercase tracking-widest">Daily cost</p>
+        <div className="flex-1 rounded-lg px-4 py-4 bg-surface-raised border border-white/10">
+          <p className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">Daily cost</p>
           <p className="text-4xl font-bold font-mono mt-1 leading-none text-light">
             {fmt(summary.totalDailyCostUsd)}
           </p>
-          <p className="text-xs text-light/40 mt-1">${summary.totalDailyCostUsd.toFixed(0)} USD · PAYG</p>
+          <p className="text-xs text-light/60 mt-1">${summary.totalDailyCostUsd.toFixed(0)} USD · PAYG</p>
         </div>
       </div>
 
@@ -63,14 +63,14 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
           <p className="text-xs text-light/50 mt-1">GB/day</p>
           <p className="text-xs text-light/50 mt-1.5">
             {fmt(summary.analyticsDailyCostUsd)}/day
-            <span className="text-light/40"> · commitment tiers apply</span>
+            <span className="text-light/60"> · commitment tiers apply</span>
           </p>
         </div>
 
         {/* Data Lake */}
         <div className={`rounded-lg px-4 py-4 bg-primary/10 border border-primary/20 ${!hasDataLake ? 'opacity-40' : ''}`}>
-          <p className="text-[10px] font-semibold text-primary/70 uppercase tracking-widest">Data Lake</p>
-          <p className="text-3xl font-bold font-mono mt-1 leading-none text-primary">{summary.dataLakeGbPerDay.toFixed(2)}</p>
+          <p className="text-[10px] font-semibold text-primary-text/70 uppercase tracking-widest">Data Lake</p>
+          <p className="text-3xl font-bold font-mono mt-1 leading-none text-primary-text">{summary.dataLakeGbPerDay.toFixed(2)}</p>
           <p className="text-xs text-light/50 mt-1">GB/day</p>
           <p className="text-xs text-light/50 mt-1.5">
             {fmt(summary.dataLakeDailyCostUsd)}/day · {dataLakeRateConverted}/GB · 30-day free retention
@@ -92,7 +92,7 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
             {dataLakeMirror > 0 && (
               <div className={`flex items-center justify-between ${analyticsExtended > 0 ? 'pt-2 border-t border-accent/40' : ''}`}>
                 <span className="text-xs text-light/50">Data Lake mirror</span>
-                <span className="text-sm font-bold font-mono text-primary">{fmt(dataLakeMirror, 2)}/mo</span>
+                <span className="text-sm font-bold font-mono text-primary-text">{fmt(dataLakeMirror, 2)}/mo</span>
               </div>
             )}
             {dataLakeNative > 0 && (

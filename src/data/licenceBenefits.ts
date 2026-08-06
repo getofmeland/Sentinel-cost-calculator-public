@@ -64,9 +64,26 @@ export const E5_DATA_GRANT_GB_PER_USER_PER_DAY = 0.005
 
 /**
  * Source IDs whose Analytics-tier ingestion is eligible for the E5 data grant.
- * Only Entra ID (sign-in & audit) and Microsoft Defender for Cloud Apps qualify.
+ *
+ * Microsoft's offer covers four categories: Entra ID sign-in and audit logs,
+ * Defender for Cloud Apps Shadow IT discovery, Purview Information Protection,
+ * and Microsoft 365 Defender advanced hunting data — device, email and identity
+ * events, which is what mde, mdi and mdo model.
+ *
+ * That fourth category is the largest by volume and was previously excluded, so
+ * the grant was capped by a small eligible pool instead of by the allowance.
+ * At 500 users that under-applied roughly £115/month of credit; at 50,000 users,
+ * around £11,500/month.
+ *
+ * Purview Information Protection has no corresponding source in the estimator.
  */
-export const E5_GRANT_ELIGIBLE_SOURCE_IDS: ReadonlySet<string> = new Set(['entra-id', 'mdca'])
+export const E5_GRANT_ELIGIBLE_SOURCE_IDS: ReadonlySet<string> = new Set([
+  'entra-id',
+  'mdca',
+  'mde',
+  'mdi',
+  'mdo',
+])
 
 /** Licences that activate the E5 data grant */
 export const E5_QUALIFYING_LICENCES: ReadonlySet<M365Licence> = new Set(['e5', 'e5-security'])

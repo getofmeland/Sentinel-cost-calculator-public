@@ -1,91 +1,67 @@
 ---
 name: regenerate-fixtures
-description: Regenerate all test fixtures and snapshot data from current pricing configuration. Destructive — overwrites existing test data.
+description: Refresh recorded API fixtures from the live Azure Retail Prices API. Destructive — overwrites existing fixture data.
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
-# Regenerate Test Fixtures
+# Refresh Recorded API Fixtures
 
-This skill regenerates all test fixture data from the current pricing configuration. It overwrites existing test files, so it should only be run deliberately.
+Re-records the live Azure pricing responses that the parser tests run against.
 
-**Invocation:** `/regenerate-fixtures` — this skill will never auto-trigger.
+**Invocation:** `/regenerate-fixtures` — never auto-triggers.
+
+## What changed and why
+
+This skill previously described generating JSON files of pre-computed expected costs (`payg-fixtures.json`, `tier-fixtures.json`, and so on) into `src/__fixtures__/`. That directory was never created and the skill referenced `src/data/logSources.ts` and `src/data/defenderMapping.ts`, neither of which exists — log sources live in `LOG_SOURCES` inside `src/data/pricing.ts`.
+
+The approach was also the wrong shape. Pre-computing expected values into a file means every rate change silently invalidates the whole set, and a stale oracle reports failures against correct code. The suite now derives expectations from the constants at runtime instead, so re-pricing needs no fixture regeneration at all.
+
+What genuinely benefits from being recorded is the **shape and spelling of the live API response** — because that is where a real bug hid for the life of the project. A filter searched for `Data Lake` while the API spells it `Data lake`, matching nothing in every region. Hand-written mocks would have used whatever spelling the parser expected and hidden it.
+
+## Current fixtures
+
+| File | Purpose |
+|---|---|
+| `src/services/__tests__/sentinel-uksouth.fixture.json` | Recorded Sentinel consumption meters for UK South, used by the parser tests |
 
 ## Steps
 
-### 1. Read Current Pricing Config
+### 1. Re-record the API response
 
-Load all pricing data from `src/data/`:
-- `pricing.ts` — commitment tiers, PAYG rates
-- `logSources.ts` — log source definitions and ingestion ranges
-- `defenderMapping.ts` — M365 licence to Defender coverage mapping
-
-### 2. Generate Calculation Fixtures
-
-Create test fixture files in `src/__fixtures__/` with pre-computed expected values:
-
-**`payg-fixtures.json`:**
-```json
-[
-  { "gbPerDay": 0, "monthlyUsd": 0, "monthlyGbp": 0 },
-  { "gbPerDay": 1, "monthlyUsd": 158.29, "monthlyGbp": 125.05 },
-  { "gbPerDay": 10, "monthlyUsd": 1582.88, "monthlyGbp": 1250.48 },
-  { "gbPerDay": 50, "monthlyUsd": 7914.40, "monthlyGbp": 6252.38 },
-  { "gbPerDay": 100, "monthlyUsd": 15828.80, "monthlyGbp": 12504.75 },
-  { "gbPerDay": 500, "monthlyUsd": 79144.00, "monthlyGbp": 62523.76 }
-]
+```bash
+curl -s "https://prices.azure.com/api/retail/prices?\$filter=serviceName%20eq%20%27Sentinel%27%20and%20armRegionName%20eq%20%27uksouth%27" -o /tmp/sentinel.json
 ```
 
-**`tier-fixtures.json`:**
-For each commitment tier, generate:
-- Monthly cost at exactly the tier level
-- Monthly cost at 50% of tier level (underage)
-- Monthly cost at 150% of tier level (overage)
-- Effective rate per GB
-- Breakeven GB/day vs PAYG
-- Savings percentage vs PAYG at tier level
+Keep only `type === 'Consumption'` items, and only the fields the parser reads: `meterName`, `retailPrice`, `unitOfMeasure`, `armRegionName`, `skuName`, `productName`. Write the result as `{ "Items": [...] }` to the fixture path above. Keeping the fixture minimal makes its intent legible in diffs.
 
-**`recommendation-fixtures.json`:**
-For ingestion values at 5, 10, 25, 40, 60, 70, 100, 150, 250, 400, 800, 1500, 3000 GB/day:
-- Best tier name
-- Monthly cost of best tier
-- Monthly cost of PAYG for comparison
-- Savings percentage
+### 2. Run the parser tests
 
-**`defender-overlap-fixtures.json`:**
-For each licence type (E3, E5, E5 Security), with a standard set of enabled sources:
-- Total ingestion before overlap
-- Total ingestion after overlap
-- GB/day reduction
-- Monthly USD savings
+```bash
+npm run test:run
+```
 
-### 3. Generate Snapshot Data
+`src/services/__tests__/azurePricing.test.ts` asserts that the parsers agree with the static constants in `src/data/pricing.ts`. **A failure here is meaningful**, not noise — it means Microsoft's published rates have moved away from the values in the repo, or a meter has been renamed.
 
-Create `src/__fixtures__/snapshot-inputs.json` with 5 representative customer profiles:
+### 3. If the tests now fail, reconcile rather than paper over
 
-1. **Small E3 customer** — 200 users, basic sources, no Defender overlap
-2. **Mid-market E5 customer** — 1,000 users, full Microsoft stack, Defender overlap applied
-3. **Large E5 customer** — 3,000 users, all sources including network, Defender overlap
-4. **E3 + heavy third-party** — 500 users, third-party firewall dominant
-5. **Minimal deployment** — 100 users, only Entra ID and Activity Logs
+Compare the recorded meters against `src/data/pricing.ts` and update the constants to match the API. Do not adjust the tests to accommodate stale constants — the API is the authority.
 
-For each profile, compute and store the expected:
-- Total GB/day, billable GB/day, free GB/day
-- PAYG monthly cost
-- Best tier and its monthly cost
-- Savings vs PAYG
+Watch for the two traps that have caused real bugs:
 
-### 4. Update Test Files
+- **`contains()` is case-sensitive.** Meters are `Data lake ingestion`, `Data lake query`, `Data lake storage`.
+- **Lake ingestion is two meters**: `Data lake ingestion Data Processed` plus `Data processing Data Processed`. The second does not contain "Data lake", so no lake-named filter returns it.
 
-If test files reference hardcoded expected values, update them to match the new fixtures.
+Also check for meters the calculator does not model at all — Basic Logs, Auxiliary Logs, Graph, and Advanced Data Insights all exist and are currently out of scope. If one appears that materially affects a customer's bill, raise it rather than silently ignoring it.
 
-### 5. Verify
+### 4. Update dependent constants
 
-Run `npm test` after regeneration to confirm all tests still pass with the updated fixtures.
+If rates changed, remember that `src/data/logTiers.ts` imports from `pricing.ts` and needs no edit, but the commitment tier table's *daily costs* are the authoritative input — effective rates and savings derive from them automatically.
 
 ## Output
 
 Report:
-- Number of fixture files created/updated
-- Any tests that failed after regeneration
-- Summary of pricing values used to generate fixtures
+- Which meters changed, with old and new values
+- Whether the static constants needed updating
+- Any new meters that appeared, and whether they are modelled
+- Test results after the refresh

@@ -56,7 +56,7 @@ export function SourceRow({
     logTier === 'analytics' && retentionStrategy === 'data-lake-mirror'
       ? DATA_LAKE_MIRROR_RETENTION_OPTIONS
       : tierDef.retentionOptions
-  const freeWindowDays = logTier === 'analytics' ? 90 : tierDef.freeRetentionDays
+  const freeWindowDays = tierDef.freeRetentionDays
 
   function handleDeviceInput(raw: string) {
     const parsed = parseInt(raw, 10)
@@ -98,22 +98,17 @@ export function SourceRow({
               <span className="text-sm font-medium text-light">{source.label}</span>
               <TableInfoPopover sourceId={source.id} sourceName={source.label} />
               {size !== globalSize && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent font-semibold">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent-text font-semibold">
                   Custom
                 </span>
               )}
               {source.isFree && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary font-medium">
+                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary-text font-medium">
                   Free
                 </span>
               )}
-              {source.coveredByDefenderXdr && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-light font-medium">
-                  XDR covered
-                </span>
-              )}
               {logTier === 'analytics' && retentionStrategy === 'analytics-extended' && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary font-medium">Extended</span>
+                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary-text font-medium">Extended</span>
               )}
             </div>
             {source.notes && (
@@ -124,27 +119,29 @@ export function SourceRow({
 
         <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
           {source.scaleBy === 'devices' && (
-            <span className="text-xs text-light/40 font-mono">
+            <span className="text-xs text-light/60 font-mono">
               {deviceCount} {source.deviceLabel}
             </span>
           )}
-          <span
-            aria-hidden="true"
-            className={`text-sm font-mono ${isSelected ? 'text-light' : 'text-light/40'}`}
-          >
-            {gbPerDay.toFixed(2)} GB/day
+          {/* Not aria-hidden: this is the number that tells a user what
+              selecting the source will cost them, and the checkbox's accessible
+              name is only the source label. */}
+          <span className={`text-sm font-mono ${isSelected ? 'text-light' : 'text-light/60'}`}>
+            {gbPerDay.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <span aria-hidden="true"> GB/day</span>
+            <span className="sr-only"> gigabytes per day</span>
           </span>
         </div>
       </div>
 
       {/* ── Expanded controls when selected ────────────────────────────────── */}
       {isSelected && (
-        <div className="mx-4 mb-3 ml-11 rounded-lg border border-white/10 bg-[#252838] p-3 flex flex-col gap-3">
+        <div className="mx-4 mb-3 ml-11 rounded-lg border border-white/10 bg-surface-raised p-3 flex flex-col gap-3">
 
           {/* Volume profile (S/M/L/XL) */}
           {!source.manualGbPerDay && (
             <div>
-              <span className="text-[10px] font-semibold text-light/40 uppercase tracking-widest block mb-1.5">
+              <span className="text-[10px] font-semibold text-light/60 uppercase tracking-widest block mb-1.5">
                 Volume profile
               </span>
               <div role="group" aria-label="Volume profile" className="flex gap-0.5">
@@ -165,7 +162,7 @@ export function SourceRow({
                     {s.id}
                   </button>
                 ))}
-                <span className="ml-2 text-[11px] text-light/40 self-center">
+                <span className="ml-2 text-[11px] text-light/60 self-center">
                   {TSHIRT_SIZES.find(s => s.id === size)?.label}
                 </span>
               </div>
@@ -175,7 +172,7 @@ export function SourceRow({
           {/* Variant selector — shown when source has presets */}
           {source.variants && source.variants.length > 0 && (
             <div>
-              <span className="text-[10px] font-semibold text-light/40 uppercase tracking-widest block mb-1.5">
+              <span className="text-[10px] font-semibold text-light/60 uppercase tracking-widest block mb-1.5">
                 Profile
               </span>
               <div role="group" aria-label="Volume profile" className="flex flex-wrap gap-1.5">
@@ -197,7 +194,7 @@ export function SourceRow({
                     >
                       {variant.label}
                       {variant.description && (
-                        <span className={`ml-1 text-[10px] ${isActive ? 'opacity-80' : 'text-light/40'}`}>
+                        <span className={`ml-1 text-[10px] ${isActive ? 'opacity-80' : 'text-light/60'}`}>
                           — {variant.description}
                         </span>
                       )}
@@ -213,7 +210,7 @@ export function SourceRow({
           {/* Left col: manual GB/day input OR device count stepper */}
           {source.manualGbPerDay ? (
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold text-light/40 uppercase tracking-widest">
+              <span className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">
                 Daily volume
               </span>
               <div className="flex items-center gap-1.5">
@@ -231,7 +228,7 @@ export function SourceRow({
             </div>
           ) : source.scaleBy === 'devices' ? (
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold text-light/40 uppercase tracking-widest">
+              <span className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">
                 {source.deviceLabel}
               </span>
               <div className="flex items-center gap-1.5">
@@ -271,7 +268,7 @@ export function SourceRow({
               <div className="flex items-center gap-2">
                 <label
                   htmlFor={`retention-${source.id}`}
-                  className="text-[10px] font-semibold text-light/40 uppercase tracking-widest whitespace-nowrap"
+                  className="text-[10px] font-semibold text-light/60 uppercase tracking-widest whitespace-nowrap"
                 >
                   Retention
                 </label>

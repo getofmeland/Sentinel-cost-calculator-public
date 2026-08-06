@@ -14,8 +14,8 @@ export const TIER_PLACEMENT_DEFAULTS: TierPlacementDefault[] = [
   { sourceId: 'mdi',                 recommendedTier: 'analytics',  reason: 'Lateral movement and credential attack detection requires low latency' },
   { sourceId: 'mdo',                 recommendedTier: 'analytics',  reason: 'Phishing and BEC detection; alert correlation with identity signals' },
   { sourceId: 'mdca',                recommendedTier: 'analytics',  reason: 'Shadow IT and OAuth app abuse detection' },
-  { sourceId: 'mdc',                 recommendedTier: 'analytics',  reason: 'Cloud workload security alerts for real-time threat response' },
-  { sourceId: 'o365-audit',          recommendedTier: 'analytics',  reason: 'Insider threat and admin activity monitoring' },
+  { sourceId: 'mdc',                 recommendedTier: 'free',       reason: 'SecurityAlert is free to ingest; alerts still drive real-time response' },
+  { sourceId: 'o365-audit',          recommendedTier: 'free',       reason: 'Free to ingest — SharePoint, Exchange admin and Teams audit records' },
   { sourceId: 'intune',              recommendedTier: 'analytics',  reason: 'Device compliance events for posture-based alerting' },
   { sourceId: 'key-vault',           recommendedTier: 'analytics',  reason: 'Low-volume critical audit trail for privileged secret access' },
   // Data Lake (investigation & forensics)

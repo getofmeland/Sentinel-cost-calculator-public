@@ -1,4 +1,4 @@
-import { EXCHANGE_RATE_USD_TO_GBP } from '../data/pricing'
+import { EXCHANGE_RATE_USD_TO_GBP, EXCHANGE_RATE_USD_TO_EUR } from '../data/pricing'
 
 export type CurrencyCode = 'GBP' | 'USD' | 'EUR'
 
@@ -20,15 +20,15 @@ export function fmtBoth(usd: number, decimals = 2, fxRate = EXCHANGE_RATE_USD_TO
  * Format a USD amount in the specified display currency.
  * @param usd - Amount in USD
  * @param currency - Target display currency
- * @param fxRateGbp - USD→GBP exchange rate (e.g. 0.79)
- * @param fxRateEur - USD→EUR exchange rate (e.g. 0.92)
+ * @param fxRateGbp - USD→GBP exchange rate; defaults to the constant in pricing.ts
+ * @param fxRateEur - USD→EUR exchange rate; defaults to the constant in pricing.ts
  * @param decimals - Number of decimal places
  */
 export function fmtCurrency(
   usd: number,
   currency: CurrencyCode,
   fxRateGbp = EXCHANGE_RATE_USD_TO_GBP,
-  fxRateEur = 0.92,
+  fxRateEur = EXCHANGE_RATE_USD_TO_EUR,
   decimals = 0,
 ): string {
   if (currency === 'GBP') {

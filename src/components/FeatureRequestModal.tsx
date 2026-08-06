@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import brand from '../config/brand'
+import { useFocusTrap } from '../utils/useFocusTrap'
 
 interface Props {
   open: boolean
@@ -38,17 +39,10 @@ export function FeatureRequestModal({ open, onClose }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const autoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Focus trap & Escape key
-  useEffect(() => {
-    if (!open) return
-    firstFieldRef.current?.focus()
-
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [open, onClose])
+  // Real focus trap: confines Tab to the dialog, handles Escape, and returns
+  // focus to the button that opened it. The previous implementation set initial
+  // focus only, so Tab escaped into the page behind the backdrop.
+  const panelRef = useFocusTrap<HTMLDivElement>(open, onClose)
 
   // Auto-close on success
   useEffect(() => {
@@ -116,7 +110,10 @@ export function FeatureRequestModal({ open, onClose }: Props) {
       />
 
       {/* Panel */}
-      <div className="relative w-full max-w-lg bg-surface rounded-2xl shadow-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
+      <div
+        ref={panelRef}
+        className="relative w-full max-w-lg bg-surface rounded-2xl shadow-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between flex-shrink-0">
           <h2 id="feature-modal-title" className="text-base font-semibold text-light">
@@ -127,7 +124,7 @@ export function FeatureRequestModal({ open, onClose }: Props) {
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-light/40 hover:text-light/80 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 rounded"
+            className="text-light/60 hover:text-light/80 transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 rounded"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -161,7 +158,7 @@ export function FeatureRequestModal({ open, onClose }: Props) {
                   View on GitHub ↗
                 </a>
               )}
-              <p className="text-xs text-light/40">This window will close automatically in 5 seconds.</p>
+              <p className="text-xs text-light/60">This window will close automatically in 5 seconds.</p>
             </div>
           ) : (
             <form id="feature-request-form" onSubmit={handleSubmit} className="space-y-4">
@@ -226,7 +223,7 @@ export function FeatureRequestModal({ open, onClose }: Props) {
               <div>
                 <label htmlFor="fr-summary" className="block text-xs text-light/60 mb-1">
                   Summary <span aria-hidden="true">*</span>
-                  <span className="text-light/30 ml-1">({summary.length}/100)</span>
+                  <span className="text-light/60 ml-1">({summary.length}/100)</span>
                 </label>
                 <input
                   id="fr-summary"
@@ -245,7 +242,7 @@ export function FeatureRequestModal({ open, onClose }: Props) {
               <div>
                 <label htmlFor="fr-description" className="block text-xs text-light/60 mb-1">
                   Description <span aria-hidden="true">*</span>
-                  <span className="text-light/30 ml-1">({description.length}/2000, min 20)</span>
+                  <span className="text-light/60 ml-1">({description.length}/2000, min 20)</span>
                 </label>
                 <textarea
                   id="fr-description"
@@ -263,12 +260,13 @@ export function FeatureRequestModal({ open, onClose }: Props) {
 
               {/* Priority */}
               <div>
-                <span className="block text-xs text-light/60 mb-1.5">Priority</span>
-                <div className="flex rounded-lg overflow-hidden border border-white/15">
+                <span id="fr-priority-label" className="block text-xs text-light/60 mb-1.5">Priority</span>
+                <div className="flex rounded-lg overflow-hidden border border-white/15" role="group" aria-labelledby="fr-priority-label">
                   {PRIORITIES.map(p => (
                     <button
                       key={p}
                       type="button"
+                      aria-pressed={priority === p}
                       onClick={() => setPriority(p)}
                       disabled={disabled}
                       className={`flex-1 px-3 py-2 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${

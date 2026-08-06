@@ -78,7 +78,7 @@ function LicenceCard({
         })}
       </div>
 
-      <div className={`text-xs font-bold leading-tight ${selected ? 'text-primary' : 'text-light'}`}>
+      <div className={`text-xs font-bold leading-tight ${selected ? 'text-primary-text' : 'text-light'}`}>
         {lic.shortLabel}
       </div>
       <div className="text-[11px] text-light/50 mt-0.5 leading-tight">
@@ -148,7 +148,7 @@ export function LicenceBenefits({
       {/* Licence selector */}
       <div className="px-6 py-4 bg-dark border-b border-white/10">
         <p
-          className="text-[11px] font-semibold text-light/40 uppercase tracking-widest mb-3"
+          className="text-[11px] font-semibold text-light/60 uppercase tracking-widest mb-3"
           id="licence-group-label"
         >
           Your Microsoft 365 licence
@@ -193,7 +193,7 @@ export function LicenceBenefits({
             Always-Free Sources
           </span>
           <span
-            className={`text-light/40 transition-transform duration-200 ${alwaysFreeExpanded ? 'rotate-180' : ''}`}
+            className={`text-light/60 transition-transform duration-200 ${alwaysFreeExpanded ? 'rotate-180' : ''}`}
             aria-hidden="true"
           >
             ▾
@@ -201,15 +201,15 @@ export function LicenceBenefits({
         </button>
         {alwaysFreeExpanded && (
           <div className="px-6 pb-4 space-y-2">
-            <p className="text-xs text-light/40 mb-3">
+            <p className="text-xs text-light/60 mb-3">
               These sources are never billed for Analytics ingestion, regardless of licence.
             </p>
             {ALWAYS_FREE_SOURCES.map(src => (
               <div key={src.id} className="flex items-start gap-2">
-                <span className="mt-0.5 text-primary text-xs">✓</span>
+                <span className="mt-0.5 text-primary-text text-xs">✓</span>
                 <div>
                   <span className="text-xs font-medium text-light">{src.label}</span>
-                  <span className="text-[11px] text-light/40 ml-1.5">{src.description}</span>
+                  <span className="text-[11px] text-light/60 ml-1.5">{src.description}</span>
                 </div>
               </div>
             ))}
@@ -219,7 +219,7 @@ export function LicenceBenefits({
 
       {isEmpty ? (
         <div className="px-6 py-10 text-center">
-          <p className="text-sm text-light/40">
+          <p className="text-sm text-light/60">
             Select log sources in the Ingestion tab to see licence benefit calculations.
           </p>
         </div>
@@ -230,7 +230,7 @@ export function LicenceBenefits({
             <div className="px-6 py-4 border-b border-white/10">
               <div className="flex items-center gap-2 mb-3">
                 <h3 className="text-sm font-semibold text-light">M365 E5 Data Grant</h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-primary uppercase tracking-widest">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-primary-text uppercase tracking-widest">
                   Active
                 </span>
               </div>
@@ -246,7 +246,7 @@ export function LicenceBenefits({
                     Eligible sources
                   </h4>
                   {e5EligibleRows.length === 0 ? (
-                    <p className="text-xs text-light/40 italic">
+                    <p className="text-xs text-light/60 italic">
                       Select Entra ID or MDCA in the Ingestion tab to see the grant.
                     </p>
                   ) : (
@@ -273,7 +273,7 @@ export function LicenceBenefits({
                         </div>
                         <div className="flex justify-between border-t border-white/10 pt-1.5">
                           <span className="text-light/50">Grant (capped)</span>
-                          <span className="text-primary font-semibold">{benefits.e5GrantGbPerDay.toFixed(2)} GB/day</span>
+                          <span className="text-primary-text font-semibold">{benefits.e5GrantGbPerDay.toFixed(2)} GB/day</span>
                         </div>
                       </div>
                     </>
@@ -286,7 +286,7 @@ export function LicenceBenefits({
                     <p className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">
                       Monthly saving
                     </p>
-                    <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.e5SavedMonthlyUsd > 0 ? 'text-light' : 'text-light/30'}`}>
+                    <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.e5SavedMonthlyUsd > 0 ? 'text-light' : 'text-light/60'}`}>
                       {benefits.e5SavedMonthlyUsd > 0 ? fmtGbp(benefits.e5SavedMonthlyUsd, 0, fxRate) : '—'}
                     </p>
                     {benefits.e5SavedMonthlyUsd > 0 && (
@@ -304,11 +304,11 @@ export function LicenceBenefits({
             <div className="px-6 py-4 border-b border-white/10">
               <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-sm font-semibold text-light/50">M365 E5 Data Grant</h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/5 border border-white/10 text-light/30 uppercase tracking-widest">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/5 border border-white/10 text-light/60 uppercase tracking-widest">
                   Not applicable
                 </span>
               </div>
-              <p className="text-xs text-light/40">
+              <p className="text-xs text-light/60">
                 Select M365 E5 or M365 E3 + E5 Security above to activate the 5 MB/user/day billing credit for Entra ID and MDCA.
               </p>
             </div>
@@ -332,7 +332,7 @@ export function LicenceBenefits({
                 aria-label="Toggle Defender for Servers Plan 2"
                 className={[
                   'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-                  defenderEnabled ? 'bg-primary' : 'bg-[#2e3245]',
+                  defenderEnabled ? 'bg-primary' : 'bg-surface-inset',
                 ].join(' ')}
               >
                 <span
@@ -354,7 +354,7 @@ export function LicenceBenefits({
                         {totalEnrolledServers} servers enrolled × {DEFENDER_SERVERS_FREE_GB_PER_SERVER_PER_DAY * 1000} MB/day
                         = {benefits.defenderServersAllowanceGbPerDay.toFixed(2)} GB/day allowance
                       </p>
-                      <p className="text-[11px] text-light/40">
+                      <p className="text-[11px] text-light/60">
                         Server counts are configured in the Ingestion tab → Server Workloads section.
                       </p>
                     </div>
@@ -367,17 +367,17 @@ export function LicenceBenefits({
                       {windowsServerGbPerDay > 0 && (
                         <div className="flex items-center justify-between py-1.5 border-b border-white/10">
                           <span className="text-xs text-light">Windows Security Events</span>
-                          <span className="text-xs font-mono text-primary">{windowsServerGbPerDay.toFixed(2)} GB/day (eligible)</span>
+                          <span className="text-xs font-mono text-primary-text">{windowsServerGbPerDay.toFixed(2)} GB/day (eligible)</span>
                         </div>
                       )}
                       {linuxServerGbPerDay > 0 && (
                         <div className="flex items-center justify-between py-1.5 border-b border-white/10">
                           <span className="text-xs text-light/60">Linux Syslog</span>
-                          <span className="text-xs font-mono text-light/40">{linuxServerGbPerDay.toFixed(2)} GB/day (not eligible)</span>
+                          <span className="text-xs font-mono text-light/60">{linuxServerGbPerDay.toFixed(2)} GB/day (not eligible)</span>
                         </div>
                       )}
                       {benefits.defenderServersEligibleGbPerDay === 0 && (
-                        <p className="text-xs text-light/40 italic">
+                        <p className="text-xs text-light/60 italic">
                           Add Windows server workloads in the Ingestion tab to see savings.
                         </p>
                       )}
@@ -385,15 +385,15 @@ export function LicenceBenefits({
                         <div className="pt-1">
                           <div className="flex items-center justify-between text-xs text-light/50 mb-1.5">
                             <span>Free allowance coverage</span>
-                            <span className="font-semibold text-primary">{defenderCoveragePct}%</span>
+                            <span className="font-semibold text-primary-text">{defenderCoveragePct}%</span>
                           </div>
-                          <div className="h-2.5 rounded-full bg-[#2e3245] overflow-hidden" aria-hidden="true">
+                          <div className="h-2.5 rounded-full bg-surface-inset overflow-hidden" aria-hidden="true">
                             <div
                               className="h-full bg-primary rounded-full transition-all duration-500"
                               style={{ width: `${defenderCoveragePct}%` }}
                             />
                           </div>
-                          <div className="flex justify-between text-[10px] text-light/40 mt-1">
+                          <div className="flex justify-between text-[10px] text-light/60 mt-1">
                             <span>{benefits.defenderServersGrantGbPerDay.toFixed(2)} GB/day covered</span>
                             <span>
                               {Math.max(0, benefits.defenderServersEligibleGbPerDay - benefits.defenderServersGrantGbPerDay).toFixed(2)} GB/day billed
@@ -410,7 +410,7 @@ export function LicenceBenefits({
                       <p className="text-[10px] font-semibold text-light/60 uppercase tracking-widest">
                         Monthly saving
                       </p>
-                      <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.defenderServersSavedMonthlyUsd > 0 ? 'text-light' : 'text-light/30'}`}>
+                      <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.defenderServersSavedMonthlyUsd > 0 ? 'text-light' : 'text-light/60'}`}>
                         {benefits.defenderServersSavedMonthlyUsd > 0
                           ? fmtGbp(benefits.defenderServersSavedMonthlyUsd, 0, fxRate)
                           : '—'}
@@ -440,7 +440,7 @@ export function LicenceBenefits({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-light/50">Total credits</span>
-                  <span className="font-mono text-primary font-semibold">−{benefits.totalGrantGbPerDay.toFixed(2)} GB/day</span>
+                  <span className="font-mono text-primary-text font-semibold">−{benefits.totalGrantGbPerDay.toFixed(2)} GB/day</span>
                 </div>
                 <div className="flex justify-between border-t border-white/10 pt-1">
                   <span className="text-light/50">Billable analytics</span>
@@ -452,19 +452,19 @@ export function LicenceBenefits({
                 <p className="text-[10px] font-semibold text-light/50 uppercase tracking-widest">
                   Total monthly saving
                 </p>
-                <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.totalSavedMonthlyUsd > 0 ? 'text-light' : 'text-light/30'}`}>
+                <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.totalSavedMonthlyUsd > 0 ? 'text-light' : 'text-light/60'}`}>
                   {benefits.totalSavedMonthlyUsd > 0 ? fmtGbp(benefits.totalSavedMonthlyUsd, 0, fxRate) : '—'}
                 </p>
               </div>
 
               <div className="rounded-lg px-3 py-2.5 bg-surface border border-white/10 text-xs space-y-1">
-                <p className="text-[10px] font-semibold text-light/40 uppercase tracking-widest mb-2">
+                <p className="text-[10px] font-semibold text-light/60 uppercase tracking-widest mb-2">
                   Commitment tiers use
                 </p>
-                <p className="text-sm font-mono font-bold text-primary">
+                <p className="text-sm font-mono font-bold text-primary-text">
                   {benefits.billableAnalyticsGbPerDay.toFixed(2)} GB/day
                 </p>
-                <p className="text-[11px] text-light/40 leading-snug">
+                <p className="text-[11px] text-light/60 leading-snug">
                   Post-benefit billable Analytics GB — the basis for tier selection below.
                 </p>
               </div>
@@ -474,7 +474,7 @@ export function LicenceBenefits({
       )}
 
       {/* Footer */}
-      <div className="px-6 py-3 border-t border-white/10 text-[11px] text-light/40 leading-relaxed">
+      <div className="px-6 py-3 border-t border-white/10 text-[11px] text-light/60 leading-relaxed">
         All data is still ingested into Sentinel for full detection and investigation coverage.
         Billing credits reduce the Analytics GB charged — they do not affect total ingestion volume.
         E5 data grant applies only to Entra ID and MDCA sources on the Analytics tier.

@@ -9,10 +9,10 @@ interface Props {
 
 // C5: Unicode arrows wrapped in aria-hidden; screen-reader text provided via sr-only
 function SavingsCell({ pct, isRec }: { pct: number | null; isRec: boolean }) {
-  if (pct === null) return <span className={isRec ? 'text-white/50' : 'text-light/40'}>—</span>
+  if (pct === null) return <span className={isRec ? 'text-white/80' : 'text-light/60'}>—</span>
   if (pct > 0) {
     return (
-      <span className={`font-semibold ${isRec ? 'text-accent' : 'text-primary'}`}>
+      <span className={`font-semibold ${isRec ? 'text-accent-text' : 'text-primary-text'}`}>
         <span className="sr-only">Saving </span>
         <span aria-hidden="true">▼ </span>
         {(pct * 100).toFixed(1)}%
@@ -29,7 +29,7 @@ function SavingsCell({ pct, isRec }: { pct: number | null; isRec: boolean }) {
 }
 
 export function TierTable({ options, billableGbPerDay }: Props) {
-  const { fxRate, displayCurrency, eurRate } = usePricing()
+  const { fxRate, displayCurrency, eurRate, pricing } = usePricing()
 
   function fmt(usd: number) {
     return fmtCurrency(usd, displayCurrency, fxRate, eurRate, 2)
@@ -38,7 +38,7 @@ export function TierTable({ options, billableGbPerDay }: Props) {
   if (billableGbPerDay === 0) {
     return (
       <div className="px-6 py-8 text-center">
-        <div className="inline-flex flex-col items-center gap-2 text-light/40">
+        <div className="inline-flex flex-col items-center gap-2 text-light/60">
           <svg className="w-8 h-8 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7h18M3 12h18M3 17h18" />
           </svg>
@@ -102,8 +102,8 @@ export function TierTable({ options, billableGbPerDay }: Props) {
                 </td>
                 <td className={`px-4 py-3 text-right font-mono ${isRec ? 'text-white/80' : 'text-light/60'}`}>
                   {opt.isPayg
-                    ? `$${(5.20).toFixed(2)}`
-                    : `$${opt.tier!.effectiveRateUsd.toFixed(2)}`}
+                    ? fmt(pricing.paygRateUsd)
+                    : fmt(opt.tier!.effectiveRateUsd)}
                 </td>
                 <td className={`px-4 py-3 text-right font-mono ${isRec ? 'text-white' : 'text-light/70'}`}>
                   {fmt(opt.dailyCostUsd)}

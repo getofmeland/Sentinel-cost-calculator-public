@@ -172,7 +172,7 @@ export function BreakevenChart({ billableGbPerDay, dataLakeGbPerDay = 0 }: Props
           onClick={() => setShowFullRange(v => !v)}
           className={`px-2 py-0.5 text-[11px] rounded border transition-colors ${
             showFullRange
-              ? 'bg-accent/20 text-accent border-accent/40'
+              ? 'bg-accent/20 text-accent-text border-accent/40'
               : 'border-white/15 text-light/50 hover:bg-white/5'
           }`}
         >
@@ -523,7 +523,7 @@ export function BreakevenChart({ billableGbPerDay, dataLakeGbPerDay = 0 }: Props
                 className="inline-block w-4 h-0.5 rounded transition-opacity"
                 style={{ backgroundColor: color, opacity: enabled ? 1 : 0.25 }}
               />
-              <span className={`transition-opacity ${enabled ? 'text-light/60' : 'text-light/25'}`}>
+              <span className={`transition-opacity ${enabled ? 'text-light/60' : 'text-light/60'}`}>
                 {tier.gbPerDay} GB/day{isBest ? ' ★' : ''}
               </span>
             </button>

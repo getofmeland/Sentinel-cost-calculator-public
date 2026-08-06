@@ -59,7 +59,10 @@ export const COMPLIANCE_PRESETS: CompliancePreset[] = [
     id: 'nhs-dspt',
     label: 'NHS DSPT / NCSC CAF',
     shortLabel: 'NHS DSPT',
-    note: 'NHS DSPT requires logs to be retained for a "sufficient period" and to be searchable for malicious activity. NCSC CAF requires sufficient historical data for post-incident analysis. 12 months is the recommended minimum for both frameworks.',
+    // Neither DSPT nor CAF states a number; both use qualitative language. The
+    // 12 months below is this tool's assumption, not a regulatory floor, and is
+    // labelled as such so nobody cites it back to an auditor as a requirement.
+    note: 'NHS DSPT requires logs to be retained for a "sufficient period" and searchable for malicious activity; NCSC CAF requires sufficient historical data for post-incident analysis. Neither specifies a period — 12 months is this tool\'s working assumption, aligned to the DSPT annual audit cycle.',
     analyticsRetentionDays: 365,
     dataLakeRetentionDays: 365,
     analyticsRetentionStrategy: 'data-lake-mirror',
@@ -68,9 +71,15 @@ export const COMPLIANCE_PRESETS: CompliancePreset[] = [
     id: 'fca-general',
     label: 'FCA Regulated (General)',
     shortLabel: 'FCA',
-    note: 'FCA SYSC 9.1 requires records and audit trails to be retained for five years on durable media with verifiable, unchanged reproduction capability. Data Lake mirroring enables cost-effective 3-year retention beyond the Analytics tier cap. The FCA may extend this requirement to seven years.',
+    // The five-year rule in SYSC 9.1.2R is scoped to the MiFID business of
+    // common platform firms — see the fca-mifid2 preset for that case. General
+    // SYSC 9.1.1R requires only records "sufficient to enable the FCA to monitor
+    // compliance" and sets no period. Asserting five years to a non-MiFID firm
+    // (consumer credit, general insurance, payments) would have them buy
+    // retention they are not required to hold.
+    note: 'FCA SYSC 9.1.1R requires orderly records sufficient for the FCA to monitor compliance, but sets no specific period — the five-year rule in SYSC 9.1.2R applies to MiFID business only. Three years is a common industry baseline for incident and audit records. If you conduct MiFID business, use the MiFID II preset instead.',
     analyticsRetentionDays: 1095,  // 3yr via mirror (no Analytics cap applies)
-    dataLakeRetentionDays: 1825,
+    dataLakeRetentionDays: 1095,   // matches the note; was 5yr, which the note never justified
     analyticsRetentionStrategy: 'data-lake-mirror',
   },
   {

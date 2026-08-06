@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Sentinel Cost Calculator">
+  <rect width="64" height="64" rx="14" fill="#191c26"/>
+  <!-- Shield: the Sentinel/security half of the mark -->
+  <path d="M32 11 L49 18 v14c0 11-7.6 17.8-17 21-9.4-3.2-17-10-17-21V18z"
+        fill="none" stroke="#a218ff" stroke-width="3.5" stroke-linejoin="round"/>
+  <!-- Rising bars: the cost/estimate half -->
+  <rect x="24" y="35" width="4.5" height="9"  rx="1.5" fill="#ff2371"/>
+  <rect x="31.5" y="29" width="4.5" height="15" rx="1.5" fill="#ff2371"/>
+  <rect x="39" y="23" width="4.5" height="21" rx="1.5" fill="#bf6bff"/>
+</svg>

@@ -1,6 +1,7 @@
 import { LOG_SOURCES, LogSource, PAYG_RATE_USD_PER_GB, EXCHANGE_RATE_USD_TO_GBP, DATA_LAKE_COMPRESSION_RATIO, RetentionStrategy, PricingBundle, STATIC_PRICING_BUNDLE } from '../data/pricing'
 import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition } from '../data/logTiers'
 import { interpolateRange } from '../data/tshirtSizes'
+import { round2 } from './round'
 
 export interface SourceEstimateRow {
   source: LogSource
@@ -45,12 +46,83 @@ export interface IngestionSummary {
   dataLakeRetentionMonthlyCostUsd: number
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
+/**
+ * Monthly cost of retaining a source's data beyond its tier's free window.
+ *
+ * Retention is a flow-to-stock conversion: ingesting `gbPerDay` and holding it
+ * for `extraDays` leaves `gbPerDay × extraDays` GB at rest, which is what the
+ * per-GB-per-month rate is charged against.
+ *
+ * The free window is read from the tier definition rather than assumed. It was
+ * previously hardcoded as 90 on the Analytics paths while the Data Lake path
+ * read the tier definition, so editing logTiers.ts silently changed one and not
+ * the other.
+ *
+ * Shared by summariseIngestion and computeServerWorkloadRows, which had
+ * divergent copies of this arithmetic.
+ */
+export function retentionCostUsd(
+  gbPerDay: number,
+  selectedRetentionDays: number,
+  logTier: LogTierKey,
+  strategy: RetentionStrategy,
+  pricing: PricingBundle,
+): number {
+  const freeWindowDays = getTierDefinition(logTier).freeRetentionDays
+  const extraDays = Math.max(0, selectedRetentionDays - freeWindowDays)
+  if (extraDays === 0) return 0
+
+  // Analytics extended retention keeps the data queryable in place, so it is
+  // billed uncompressed at the interactive rate. Everything else — native Data
+  // Lake and Analytics mirrored to the lake — is billed on compressed volume.
+  if (logTier === 'analytics' && strategy === 'analytics-extended') {
+    return round2(gbPerDay * extraDays * pricing.analyticsExtendedRetentionRateUsd)
+  }
+  return round2(
+    (gbPerDay / DATA_LAKE_COMPRESSION_RATIO) * extraDays * pricing.dataLakeRetentionRateUsd,
+  )
 }
 
 export function midpoint(range: [number, number]): number {
   return (range[0] + range[1]) / 2
+}
+
+/**
+ * How many of a device-scaled source an organisation of this size is likely to
+ * run, used to seed the count before the user edits it.
+ *
+ * `defaultDeviceCount` is a fixed number calibrated for a small office, so a
+ * 50,000-user estate was still seeded with two firewalls and two DNS servers
+ * while its user-scaled sources grew a hundredfold. The two errors pull in
+ * opposite directions and land in different pricing tiers, so they do not
+ * cancel — the network side was simply understated at the top of the range.
+ *
+ * Scaling is sub-linear: infrastructure is consolidated and redundant rather
+ * than provisioned per seat, so a tenfold headcount does not mean tenfold
+ * firewalls. The seed never drops below the source's own default.
+ */
+export function scaledDeviceCount(source: LogSource, userCount: number): number {
+  const base = source.defaultDeviceCount ?? 0
+  if (base === 0 || source.scaleBy !== 'devices') return base
+
+  // Calibrated so the declared default holds at the 500-user reference point.
+  const REFERENCE_USERS = 500
+  const users = sanitiseQuantity(userCount, REFERENCE_USERS)
+  const factor = Math.sqrt(Math.max(users, REFERENCE_USERS) / REFERENCE_USERS)
+  return Math.max(base, Math.round(base * factor))
+}
+
+/**
+ * Coerce an untrusted numeric input to a non-negative, finite value.
+ *
+ * The React inputs already clamp keystrokes, but the calculation layer is
+ * reachable from anywhere — shared URLs, presets, or a future embed. A negative
+ * manual GB value used to subtract from the customer's total, and a NaN turned
+ * every downstream figure into NaN, both silently.
+ */
+export function sanitiseQuantity(value: number | undefined, fallback = 0): number {
+  if (value === undefined || !Number.isFinite(value) || value < 0) return fallback
+  return value
 }
 
 export function estimateSourceGbPerDay(
@@ -61,7 +133,9 @@ export function estimateSourceGbPerDay(
   manualGbValue?: number,
   sizeMultiplier = 0.5,  // position within [min, max] range (0 = min, 1 = max)
 ): number {
-  if (source.manualGbPerDay) return manualGbValue ?? 0
+  if (source.manualGbPerDay) return sanitiseQuantity(manualGbValue)
+
+  const safeUserCount = sanitiseQuantity(userCount)
 
   // Apply variant overrides when a variant is selected
   let gbPerDeviceRange = source.gbPerDeviceRange
@@ -76,11 +150,12 @@ export function estimateSourceGbPerDay(
   }
 
   if (source.scaleBy === 'devices' && gbPerDeviceRange) {
-    const count = deviceCount ?? source.defaultDeviceCount ?? 0
+    // An explicit count always wins; the scaled seed only fills the gap.
+    const count = sanitiseQuantity(deviceCount, scaledDeviceCount(source, safeUserCount))
     return round2(interpolateRange(gbPerDeviceRange[0], gbPerDeviceRange[1], sizeMultiplier) * count)
   }
   if (gbPer1000UsersRange) {
-    return round2(interpolateRange(gbPer1000UsersRange[0], gbPer1000UsersRange[1], sizeMultiplier) * (userCount / 1000))
+    return round2(interpolateRange(gbPer1000UsersRange[0], gbPer1000UsersRange[1], sizeMultiplier) * (safeUserCount / 1000))
   }
   return 0
 }
@@ -120,21 +195,9 @@ export function summariseIngestion(
           : (retentionStrategies[source.id] ?? 'data-lake-mirror')
 
       const selectedRetention = retentionDays[source.id] ?? tierDef.freeRetentionDays
-      let retentionMonthlyCostUsd = 0
-      if (!source.isFree) {
-        if (logTier === 'data-lake') {
-          // BUG FIX: apply compression ratio (was previously missing)
-          const extraDays = Math.max(0, selectedRetention - tierDef.freeRetentionDays) // free = 30
-          retentionMonthlyCostUsd = round2((gbPerDay / DATA_LAKE_COMPRESSION_RATIO) * extraDays * pricing.dataLakeRetentionRateUsd)
-        } else if (effectiveStrategy === 'analytics-extended') {
-          const extraDays = Math.max(0, selectedRetention - 90)
-          retentionMonthlyCostUsd = round2(gbPerDay * extraDays * pricing.analyticsExtendedRetentionRateUsd)
-        } else {
-          // data-lake-mirror: compressed, 90-day Analytics hot window is free
-          const extraDays = Math.max(0, selectedRetention - 90)
-          retentionMonthlyCostUsd = round2((gbPerDay / DATA_LAKE_COMPRESSION_RATIO) * extraDays * pricing.dataLakeRetentionRateUsd)
-        }
-      }
+      const retentionMonthlyCostUsd = source.isFree
+        ? 0
+        : retentionCostUsd(gbPerDay, selectedRetention, logTier, effectiveStrategy, pricing)
 
       return { source, gbPerDay, logTier, retentionStrategy: effectiveStrategy, dailyCostUsd, retentionDays: selectedRetention, retentionMonthlyCostUsd }
     })

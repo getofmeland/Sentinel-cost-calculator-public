@@ -1,6 +1,6 @@
 # Sentinel Cost Calculator
 
-A client-side cost calculator for Microsoft Sentinel SIEM deployments. Built for UK mid-market organisations (100–2,000 users) evaluating or optimising their Sentinel spend.
+A client-side cost calculator for Microsoft Sentinel SIEM deployments. Built for UK mid-market organisations evaluating or optimising their Sentinel spend, and usable from 100 up to 50,000 users.
 
 **Live tool:** [calculator.cloudsecurityinsider.com](https://calculator.cloudsecurityinsider.com)
 
@@ -13,9 +13,9 @@ A client-side cost calculator for Microsoft Sentinel SIEM deployments. Built for
 | **Environment profiles** | S/M/L/XL sizing profiles calibrate all source estimates within min–max ranges, with per-source overrides |
 | **Ingestion estimator** | Per-source GB/day estimates scaled by user count or device count, with volume profile variants |
 | **Server workload breakdown** | 14 structured server workload types (10 Windows, 4 Linux) with role-specific collection levels |
-| **Dual-tier pricing** | Analytics tier (full KQL, $5.20/GB) vs Data Lake tier (limited KQL, $0.15/GB) |
-| **Live pricing by region** | Fetches current Sentinel rates from the Azure Retail Prices API for 18 Azure regions |
-| **Multi-currency** | GBP, USD, and EUR with configurable exchange rates |
+| **Dual-tier pricing** | Analytics tier (full KQL) vs Data Lake tier (limited KQL, ~35x cheaper to ingest) |
+| **Live pricing by region** | Fetches current Sentinel rates from the Azure Retail Prices API for 17 Azure regions |
+| **Multi-currency** | GBP, USD, and EUR, with live exchange rates and manual override |
 | **Commitment tier comparison** | Breakeven analysis across all seven commitment tiers vs PAYG |
 | **Extended retention costing** | Per-source retention beyond the free window, split by tier |
 | **Compliance presets** | One-click retention configuration for ISO 27001, NHS DSPT, FCA, PCI DSS 4.0 |

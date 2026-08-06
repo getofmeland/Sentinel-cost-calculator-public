@@ -2,8 +2,8 @@
 
 ## Project Overview
 A React-based cost calculator for Microsoft Sentinel SIEM deployments.
-Target audience: UK mid-market organisations (100–2,000 users) evaluating
-or optimising their Sentinel spend.
+Target audience: UK mid-market organisations evaluating or optimising their
+Sentinel spend. The user-count slider spans 100 to 50,000.
 
 ## Tech Stack
 - React with TypeScript

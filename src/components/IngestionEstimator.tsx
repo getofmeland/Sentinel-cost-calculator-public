@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { LOG_SOURCES, LogSourceGroup, DAYS_PER_MONTH, RetentionStrategy } from '../data/pricing'
+import { useState, useEffect, useMemo } from 'react'
+import { LOG_SOURCES, DAYS_PER_MONTH, RetentionStrategy } from '../data/pricing'
+import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
 import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition } from '../data/logTiers'
 import { M365Licence, LICENCES } from '../data/licenceBenefits'
-import { summariseIngestion, estimateSourceGbPerDay } from '../utils/ingestion'
+import { summariseIngestion, estimateSourceGbPerDay, scaledDeviceCount } from '../utils/ingestion'
 import { computeLicenceBenefits } from '../utils/licenceBenefits'
 import { computeTierOptions } from '../utils/tiers'
 import { getDefaultTier } from '../data/tierPlacement'
@@ -22,26 +23,13 @@ import { StickyTotalBar } from './StickyTotalBar'
 import { TabNav } from './TabNav'
 import { CompliancePresetBanner } from './CompliancePresetBanner'
 import { RetentionStrategyPanel } from './RetentionStrategyPanel'
-
-const GROUP_LABELS: Record<LogSourceGroup, string> = {
-  'identity': 'Identity & Entra',
-  'microsoft-defender': 'Microsoft Defender',
-  'microsoft-365': 'Microsoft 365',
-  'azure-platform': 'Azure Platform',
-  'network': 'Network',
-  'infrastructure': 'Server Workloads',
-  'third-party': 'Third-party & Custom',
-}
-
-const GROUP_ORDER: LogSourceGroup[] = [
-  'identity',
-  'microsoft-defender',
-  'microsoft-365',
-  'azure-platform',
-  'network',
-  'infrastructure',
-  'third-party',
-]
+import { ShareBar } from './ShareBar'
+import {
+  loadInitialState,
+  saveToStorage,
+  type ShareableState,
+} from '../utils/shareState'
+import { buildEstimateCsv, downloadCsv } from '../utils/csvExport'
 
 type TabId = 'ingestion' | 'placement' | 'optimisation' | 'summary'
 
@@ -61,41 +49,95 @@ interface Props {
 }
 
 export function IngestionEstimator({ onPresetChange }: Props) {
-  const { pricing, fxRate } = usePricing()
+  const {
+    pricing, fxRate, eurRate, region, regionDisplayName,
+    onRegionChange, displayCurrency, onCurrencyChange,
+  } = usePricing()
   const [activeTab, setActiveTab] = useState<TabId>('ingestion')
 
+  // A shared link, else the last autosaved estimate, else nothing. Read once on
+  // mount so later edits are not fighting the restore.
+  const [restored] = useState(() => loadInitialState(window.location.search))
+
   // ── Ingestion state ────────────────────────────────────────────────────
-  const [userCount, setUserCount] = useState<number>(500)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [inputDisplayValue, setInputDisplayValue] = useState<string>('500')
-  const [deviceCounts, setDeviceCounts] = useState<Record<string, number>>({})
-  const [logTiers, setLogTiers] = useState<Record<string, LogTierKey>>({})
-  const [retentionDays, setRetentionDays] = useState<Record<string, number>>({})
-  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({})
-  const [manualGbValues, setManualGbValues] = useState<Record<string, number>>({})
+  const [userCount, setUserCount] = useState<number>(restored?.userCount ?? 500)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(restored?.selectedIds ?? []))
+  const [inputDisplayValue, setInputDisplayValue] = useState<string>(String(restored?.userCount ?? 500))
+  const [deviceCounts, setDeviceCounts] = useState<Record<string, number>>(restored?.deviceCounts ?? {})
+  const [logTiers, setLogTiers] = useState<Record<string, LogTierKey>>(restored?.logTiers ?? {})
+  const [retentionDays, setRetentionDays] = useState<Record<string, number>>(restored?.retentionDays ?? {})
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>(restored?.selectedVariants ?? {})
+  const [manualGbValues, setManualGbValues] = useState<Record<string, number>>(restored?.manualGbValues ?? {})
 
   // ── T-shirt sizing state ───────────────────────────────────────────────
-  const [globalSize, setGlobalSize] = useState<TshirtSize>(DEFAULT_TSHIRT_SIZE)
-  const [sourceSizeOverrides, setSourceSizeOverrides] = useState<Record<string, TshirtSize>>({})
+  const [globalSize, setGlobalSize] = useState<TshirtSize>(restored?.globalSize ?? DEFAULT_TSHIRT_SIZE)
+  const [sourceSizeOverrides, setSourceSizeOverrides] = useState<Record<string, TshirtSize>>(restored?.sizeOverrides ?? {})
 
   // ── Server workload state ──────────────────────────────────────────────
-  const [serverCounts, setServerCounts] = useState<Record<string, number>>({})
-  const [serverLevels, setServerLevels] = useState<Record<string, string>>({})
+  const [serverCounts, setServerCounts] = useState<Record<string, number>>(restored?.serverCounts ?? {})
+  const [serverLevels, setServerLevels] = useState<Record<string, string>>(restored?.serverLevels ?? {})
   const [serverSizeOverrides, setServerSizeOverrides] = useState<Record<string, TshirtSize>>({})
-  const [serverLogTiers] = useState<Record<string, LogTierKey>>({})
-  const [serverRetentionDays] = useState<Record<string, number>>({})
 
   // ── Compliance preset state ────────────────────────────────────────────
-  const [activePresetId, setActivePresetId] = useState<CompliancePresetId>('custom')
-  const [mifidExtended, setMifidExtended] = useState(false)
+  const [activePresetId, setActivePresetId] = useState<CompliancePresetId>(restored?.activePresetId ?? 'custom')
+  const [mifidExtended, setMifidExtended] = useState(restored?.mifidExtended ?? false)
 
   // ── Retention strategy state ───────────────────────────────────────────
-  const [globalRetentionStrategy, setGlobalRetentionStrategy] = useState<RetentionStrategy>('data-lake-mirror')
-  const [retentionStrategies, setRetentionStrategies] = useState<Record<string, RetentionStrategy>>({})
+  const [globalRetentionStrategy, setGlobalRetentionStrategy] = useState<RetentionStrategy>(
+    restored?.globalRetentionStrategy ?? 'data-lake-mirror',
+  )
+  const [retentionStrategies, setRetentionStrategies] = useState<Record<string, RetentionStrategy>>(
+    restored?.retentionStrategies ?? {},
+  )
 
   // ── Savings state (lifted so CostSummary can access them) ──────────────
-  const [licence, setLicence] = useState<M365Licence>('none')
-  const [defenderEnabled, setDefenderEnabled] = useState(false)
+  const [licence, setLicence] = useState<M365Licence>(restored?.licence ?? 'none')
+  const [defenderEnabled, setDefenderEnabled] = useState(restored?.defenderEnabled ?? false)
+
+  // Region and currency live in PricingContext, so push the restored values up
+  // once rather than duplicating that state here.
+  useEffect(() => {
+    if (!restored) return
+    if (restored.region !== region) onRegionChange(restored.region)
+    if (restored.displayCurrency !== displayCurrency) onCurrencyChange(restored.displayCurrency)
+    // Mount-only: this restores a link, it is not a two-way binding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Shareable state ────────────────────────────────────────────────────
+
+  const shareableState: ShareableState = useMemo(() => ({
+    userCount,
+    selectedIds: [...selectedIds],
+    globalSize,
+    activePresetId,
+    mifidExtended,
+    globalRetentionStrategy,
+    licence,
+    defenderEnabled,
+    region,
+    displayCurrency,
+    serverCounts,
+    serverLevels,
+    deviceCounts,
+    logTiers,
+    retentionDays,
+    selectedVariants,
+    manualGbValues,
+    sizeOverrides: sourceSizeOverrides,
+    retentionStrategies,
+  }), [
+    userCount, selectedIds, globalSize, activePresetId, mifidExtended,
+    globalRetentionStrategy, licence, defenderEnabled, region, displayCurrency,
+    serverCounts, serverLevels, deviceCounts, logTiers, retentionDays,
+    selectedVariants, manualGbValues, sourceSizeOverrides, retentionStrategies,
+  ])
+
+  // Autosave, debounced so dragging the user slider does not thrash storage.
+  useEffect(() => {
+    const id = setTimeout(() => saveToStorage(shareableState), 400)
+    return () => clearTimeout(id)
+  }, [shareableState])
 
   // ── Derived values ─────────────────────────────────────────────────────
 
@@ -107,16 +149,21 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   }
 
   // Compute server workload rows
+  // Server workloads share the log sources' tier, retention and strategy state.
+  // Their ids (ws-*, lx-*) never collide with LOG_SOURCES ids, so one record
+  // covers both — and the Tier Placement tab, which edits these, now actually
+  // moves a server workload between tiers instead of writing to state that
+  // nothing read.
   const serverRows = computeServerWorkloadRows(
     SERVER_WORKLOADS,
     serverCounts,
     serverLevels,
     serverSizeOverrides,
     globalSize,
-    serverLogTiers,
-    serverRetentionDays,
+    logTiers,
+    retentionDays,
     pricing,
-    fxRate,
+    retentionStrategies,
   )
 
   const summary = summariseIngestion(
@@ -161,15 +208,20 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const totalSavings = licenceBenefits.totalSavedMonthlyUsd
   const withSavingsMonthly = Math.max(0, paygMonthly - totalSavings)
   const recommendedOption = commitmentOptions.find(o => o.isRecommended && !o.isPayg)
+
+  // computeTierOptions was given billableAnalyticsGbPerDay, which already has
+  // the E5 and Defender grants removed, so the commitment cost below reflects
+  // them once. Subtracting totalSavings again — as this did — charged the
+  // customer's licence benefit to them twice in their favour, understating the
+  // headline figure by the full value of the grant.
   const analyticsCommitmentMonthly = recommendedOption
     ? recommendedOption.monthlyCostUsd
-    : summary.analyticsDailyCostUsd * DAYS_PER_MONTH
+    : licenceBenefits.billableAnalyticsGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH
   const optimisedMonthly = Math.max(
     0,
     analyticsCommitmentMonthly
       + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
-      + summary.retentionMonthlyCostUsd
-      - totalSavings,
+      + summary.retentionMonthlyCostUsd,
   )
 
   // ── Handlers ───────────────────────────────────────────────────────────
@@ -355,13 +407,28 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
   const isEmpty = summary.rows.length === 0
 
+  function handleExportCsv() {
+    const csv = buildEstimateCsv({
+      summary,
+      currency: displayCurrency,
+      fxRate: displayCurrency === 'GBP' ? fxRate : displayCurrency === 'EUR' ? eurRate : 1,
+      paygMonthlyUsd: paygMonthly,
+      withSavingsMonthlyUsd: withSavingsMonthly,
+      optimisedMonthlyUsd: optimisedMonthly,
+      recommendedTierLabel: recommendedOption?.label ?? 'Pay-as-you-go',
+      userCount,
+      region: regionDisplayName,
+    })
+    downloadCsv(`sentinel-estimate-${userCount}-users.csv`, csv)
+  }
+
   // Ingestion tab content (source list + summary bar)
   const ingestionTabContent = (
     <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
       {/* User count section */}
       <div className="px-6 py-4 border-b border-white/10 bg-dark">
         <label htmlFor="user-count-slider" className="block text-sm font-medium text-light mb-3">
-          User count: <span className="text-primary font-semibold">{userCount.toLocaleString()}</span>
+          User count: <span className="text-primary-text font-semibold">{userCount.toLocaleString()}</span>
         </label>
         <div className="flex items-center gap-4">
           <input
@@ -384,10 +451,10 @@ export function IngestionEstimator({ onPresetChange }: Props) {
             onBlur={handleInputBlur}
             onKeyDown={handleInputKeyDown}
             aria-label="Number of users (type a value)"
-            className="w-24 px-2 py-1.5 text-sm border border-white/15 rounded-md text-center font-mono bg-[#252838] text-light focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            className="w-24 px-2 py-1.5 text-sm border border-white/15 rounded-md text-center font-mono bg-surface-raised text-light focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
           />
         </div>
-        <div className="flex justify-between text-xs text-light/40 mt-1">
+        <div className="flex justify-between text-xs text-light/60 mt-1">
           <span>{MIN_USERS.toLocaleString()}</span>
           <span>{MAX_USERS.toLocaleString()}</span>
         </div>
@@ -395,7 +462,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
       {/* Environment Profile */}
       <div className="px-6 py-4 border-b border-white/10">
-        <p id="profile-label" className="text-[11px] font-semibold text-light/40 uppercase tracking-widest mb-2">
+        <p id="profile-label" className="text-[11px] font-semibold text-light/60 uppercase tracking-widest mb-2">
           Environment Profile
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-labelledby="profile-label">
@@ -412,10 +479,10 @@ export function IngestionEstimator({ onPresetChange }: Props) {
                   : 'border-white/10 bg-surface hover:border-white/20',
               ].join(' ')}
             >
-              <div className={`text-xs font-bold ${globalSize === sz.id ? 'text-primary' : 'text-light'}`}>
+              <div className={`text-xs font-bold ${globalSize === sz.id ? 'text-primary-text' : 'text-light'}`}>
                 {sz.id} — {sz.label}
               </div>
-              <div className="text-[10px] text-light/40 mt-0.5 leading-snug line-clamp-2">
+              <div className="text-[10px] text-light/60 mt-0.5 leading-snug line-clamp-2">
                 {sz.description}
               </div>
             </button>
@@ -441,7 +508,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
             <button
               type="button"
               onClick={() => handleGlobalSizeChange('L')}
-              className="flex-shrink-0 text-[11px] px-2.5 py-1 rounded border border-accent/50 text-accent hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="flex-shrink-0 text-[11px] px-2.5 py-1 rounded border border-accent/50 text-accent-text hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
               Apply Active
             </button>
@@ -481,7 +548,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           <button
             type="button"
             onClick={handleSelectAll}
-            className="text-xs px-2.5 py-1 rounded border border-primary text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+            className="text-xs px-2.5 py-1 rounded border border-primary text-primary-text hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
           >
             Select all
           </button>
@@ -526,14 +593,16 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           return (
             <div key={group}>
               <div className="px-6 py-1.5 bg-dark border-y border-white/10 sticky top-0 z-10">
-                <span className="text-[10px] font-semibold text-light/40 uppercase tracking-[0.12em]">
+                <span className="text-[10px] font-semibold text-light/60 uppercase tracking-[0.12em]">
                   {GROUP_LABELS[group]}
                 </span>
               </div>
               <ul className="divide-y divide-white/10">
                 {groupSources.map(source => {
                   const row = summary.rows.find(r => r.source.id === source.id)
-                  const deviceCount = deviceCounts[source.id] ?? source.defaultDeviceCount ?? 0
+                  // Seeded from user count so the displayed number matches what
+                  // the estimate actually uses; an explicit edit still wins.
+                  const deviceCount = deviceCounts[source.id] ?? scaledDeviceCount(source, userCount)
                   const variantId = selectedVariants[source.id] ?? source.defaultVariantId
                   const logTier = (logTiers[source.id] as LogTierKey | undefined) ?? DEFAULT_LOG_TIER
                   const tierDef = getTierDefinition(logTier)
@@ -589,7 +658,10 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         </p>
       </div>
 
-      <TabNav tabs={TABS} activeTab={activeTab} onChange={id => setActiveTab(id as TabId)} />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <TabNav tabs={TABS} activeTab={activeTab} onChange={id => setActiveTab(id as TabId)} />
+        <ShareBar state={shareableState} onExportCsv={handleExportCsv} isEmpty={isEmpty} />
+      </div>
 
       <div id="panel-ingestion" role="tabpanel" aria-labelledby="tab-ingestion" hidden={activeTab !== 'ingestion'}>
         {ingestionTabContent}
@@ -635,6 +707,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           defenderEnabled={defenderEnabled}
           e5SavedMonthlyUsd={licenceBenefits.e5SavedMonthlyUsd}
           commitmentOptions={commitmentOptions}
+          analyticsGrossGbPerDay={summary.analyticsGbPerDay}
+          analyticsNetGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
         />
       </div>
 
