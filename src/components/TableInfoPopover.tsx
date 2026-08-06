@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { SOURCE_TABLE_MAPPINGS, resolveWorkloadMappingId } from '../data/sentinelTables'
+import { useFocusTrap } from '../utils/useFocusTrap'
 
 interface Props {
   /** Source ID from LOG_SOURCES, or a server workload ID (ws-* / lx-*) */
@@ -23,7 +24,8 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
   const [flipUp, setFlipUp] = useState(false)
 
   const buttonRef = useRef<HTMLButtonElement>(null)
-  const popoverRef = useRef<HTMLDivElement>(null)
+  // Mutable: the popover node is shared with the focus trap's ref below.
+  const popoverRef = useRef<HTMLDivElement | null>(null)
 
   // Compute position anchored to the info button
   const computePosition = useCallback(() => {
@@ -78,21 +80,20 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  // Close on Escape; reposition on scroll/resize
+  // The popover is portalled to the end of <body>, so its content sits nowhere
+  // near the trigger in the document's tab order — a keyboard user pressing Tab
+  // after opening it landed on whatever follows in the page, not on the
+  // popover's links or close button. Trapping focus is what makes the content
+  // reachable at all, and the hook restores focus to the trigger on close.
+  const trapRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false))
+
+  // Reposition on scroll/resize
   useEffect(() => {
     if (!open) return
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false)
-        buttonRef.current?.focus()
-      }
-    }
     function handleResize() { computePosition() }
-    document.addEventListener('keydown', handleKey)
     window.addEventListener('resize', handleResize)
     window.addEventListener('scroll', handleResize, true)
     return () => {
-      document.removeEventListener('keydown', handleKey)
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('scroll', handleResize, true)
     }
@@ -136,9 +137,12 @@ export function TableInfoPopover({ sourceId, sourceName }: Props) {
 
       {open && pos && createPortal(
         <div
-          ref={popoverRef}
+          ref={node => {
+            popoverRef.current = node
+            trapRef.current = node
+          }}
           role="dialog"
-          aria-modal="false"
+          aria-modal="true"
           aria-label={`Sentinel table reference — ${sourceName}`}
           style={{
             position: 'fixed',

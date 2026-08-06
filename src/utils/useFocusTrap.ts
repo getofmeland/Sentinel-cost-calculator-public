@@ -23,7 +23,8 @@ const FOCUSABLE = [
  * @param onEscape optional handler for the Escape key
  */
 export function useFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: () => void) {
-  const containerRef = useRef<T>(null)
+  // Mutable so a caller can share one DOM node between this and another ref.
+  const containerRef = useRef<T | null>(null)
   const previouslyFocused = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
