@@ -32,7 +32,15 @@ describe('table reverse index', () => {
 
   it('returns null for a table it does not know', () => {
     expect(matchTable('MyCustomApp_CL')).toBeNull()
-    expect(matchTable('Perf')).toBeNull()
+    expect(matchTable('SomeTableNobodyHasHeardOf')).toBeNull()
+  })
+
+  it('recognises the multi-cloud and operational tables a real tenant surfaced', () => {
+    // A tester found all of these reported as "Unrecognised" against a live
+    // workspace — the mapping was Microsoft-security-only.
+    for (const t of ['AWSCloudTrail', 'AWSVPCFlow', 'ThreatIntelIndicators', 'Perf', 'GCPAuditLogs']) {
+      expect(matchTable(t), `${t} should be recognised`).not.toBeNull()
+    }
   })
 
   it('excludes the {TableName}_CL documentation placeholder', () => {
@@ -128,10 +136,14 @@ describe('tier placement savings', () => {
     expect(r.opportunities.find(o => o.kind === 'tier-placement')).toBeUndefined()
   })
 
-  it('warns that moving reduces query capability', () => {
+  it('warns that moving breaks alerts and is rate-limited', () => {
+    // Microsoft: "Alerts stop working for that table", and plan changes are
+    // limited to one per table per week. Both are the difference between good
+    // advice and advice that takes a detection offline.
     const paste = `TableName\tPlan\tBillableMB\nDnsEvents\tAnalytics\t${20 * 1000 * 31}`
     const opp = analyse(paste).opportunities.find(o => o.kind === 'tier-placement')!
-    expect(opp.detail).toMatch(/slower|limited/i)
+    expect(opp.detail).toMatch(/alerts stop working/i)
+    expect(opp.detail).toMatch(/once? per table per week|one plan change/i)
   })
 })
 
@@ -162,8 +174,9 @@ describe('honesty about what it cannot advise on', () => {
     ].join('\n')
 
     const r = analyse(paste)
-    expect(r.unclassifiedTableCount).toBe(2)
-    expect(r.unclassifiedGbPerDay).toBeCloseTo(25, 1)
+    // Perf is now catalogued as operational, so only the custom table remains
+    // genuinely unclassified.
+    expect(r.unclassifiedTableCount).toBe(1)
     expect(r.unclassifiedMonthlyUsd).toBeGreaterThan(0)
     // Still counted in the current spend — only excluded from advice.
     expect(r.currentMonthlyUsd).toBeGreaterThan(r.unclassifiedMonthlyUsd)
@@ -194,6 +207,99 @@ describe('honesty about what it cannot advise on', () => {
       .filter(o => !o.needsUserInput)
       .reduce((a, o) => a + o.monthlySavingUsd, 0)
     expect(r.totalAddressableSavingUsd).toBeCloseTo(substantiated, 2)
+  })
+})
+
+describe('never recommends a move the customer cannot make', () => {
+  // Microsoft publishes "Auxiliary / Lake table support: No" for a number of
+  // tables. For those, no amount of cost pressure allows a tier change, so
+  // recommending one would be impossible advice.
+
+  it('knows which tables cannot use the Lake plan', () => {
+    expect(matchTable('ThreatIntelIndicators')!.lakeCapable).toBe(false)
+    expect(matchTable('AWSVPCFlow')!.lakeCapable).toBe(true)
+  })
+
+  it('does not offer a tier move for a table with no Lake support', () => {
+    const paste = `TableName\tPlan\tBillableMB\nThreatIntelIndicators\tAnalytics\t${50 * 1000 * 31}`
+    const r = analyse(paste)
+    expect(r.opportunities.find(o => o.kind === 'tier-placement')).toBeUndefined()
+    expect(r.tables[0].status).not.toBe('move-to-lake')
+    expect(r.tables[0].potentialSavingUsd).toBe(0)
+  })
+
+  it('explains why, rather than silently omitting it', () => {
+    const m = matchTable('ThreatIntelIndicators')!
+    expect(m.caveat).toBeTruthy()
+    expect(m.caveat).toMatch(/lake/i)
+  })
+
+  it('still offers the move for comparable tables that do support it', () => {
+    const paste = `TableName\tPlan\tBillableMB\nAWSVPCFlow\tAnalytics\t${50 * 1000 * 31}`
+    expect(analyse(paste).opportunities.find(o => o.kind === 'tier-placement')).toBeDefined()
+  })
+})
+
+describe('operational data in a security workspace', () => {
+  it('flags it as a question with the amount at stake, not a claimed saving', () => {
+    const paste = [
+      'TableName\tPlan\tBillableMB',
+      `Perf\tAnalytics\t${30 * 1000 * 31}`,
+      `ContainerLogV2\tAnalytics\t${40 * 1000 * 31}`,
+    ].join('\n')
+
+    const r = analyse(paste)
+    const opp = r.opportunities.find(o => o.kind === 'operational-data')!
+    expect(opp.tables).toEqual(expect.arrayContaining(['Perf', 'ContainerLogV2']))
+    // Whether separating saves money depends on commitment tiers and retention,
+    // so it must not inflate a headline we would have to defend.
+    expect(opp.monthlySavingUsd).toBe(0)
+    expect(opp.contextUsd).toBeGreaterThan(0)
+  })
+
+  it('states both reasons separating can cost more', () => {
+    const paste = `TableName\tPlan\tBillableMB\nPerf\tAnalytics\t${30 * 1000 * 31}`
+    const opp = analyse(paste).opportunities.find(o => o.kind === 'operational-data')!
+    expect(opp.detail).toMatch(/commitment tier/i)
+    expect(opp.detail).toMatch(/retention/i)
+  })
+
+  it('does not fire when the workspace holds only security data', () => {
+    const paste = `TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${10 * 1000 * 31}`
+    expect(analyse(paste).opportunities.find(o => o.kind === 'operational-data')).toBeUndefined()
+  })
+})
+
+describe('guessing the family of an unknown table', () => {
+  const guessOf = (name: string) => {
+    const paste = `TableName\tPlan\tBillableMB\n${name}\tAnalytics\t1000`
+    return analyse(paste).tables[0].guess
+  }
+
+  it('identifies unmapped AWS and GCP tables by prefix', () => {
+    expect(guessOf('AWSSomethingNew')!.label).toMatch(/AWS/)
+    expect(guessOf('GCPSomethingNew')!.label).toMatch(/Google/)
+  })
+
+  it('describes a _CL table by schema, not by who created it', () => {
+    // Plenty of Microsoft and vendor connectors write to _CL because they run
+    // on Functions or the codeless framework. Calling it "your custom log"
+    // would send someone hunting for a logging pipeline they never built.
+    const g = guessOf('SomeVendor_CL')!
+    expect(g.label).toMatch(/custom-schema/i)
+    expect(g.note).toMatch(/vendor connector/i)
+    expect(g.note).not.toMatch(/your own custom table/i)
+  })
+
+  it('never attaches a tier recommendation to a guess', () => {
+    const paste = `TableName\tPlan\tBillableMB\nAWSSomethingNew\tAnalytics\t${50 * 1000 * 31}`
+    const r = analyse(paste)
+    expect(r.tables[0].status).toBe('unclassified')
+    expect(r.tables[0].potentialSavingUsd).toBe(0)
+  })
+
+  it('returns nothing for a name with no recognisable pattern', () => {
+    expect(guessOf('Widgets')).toBeNull()
   })
 })
 

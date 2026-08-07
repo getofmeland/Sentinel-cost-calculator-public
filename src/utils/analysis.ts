@@ -1,5 +1,6 @@
 import { PricingBundle, STATIC_PRICING_BUNDLE, DAYS_PER_MONTH } from '../data/pricing'
-import { matchTable, isAlwaysFreeTable, type TableMatch } from '../data/tableIndex'
+import { matchTable, guessTable, isAlwaysFreeTable, type TableMatch } from '../data/tableIndex'
+import type { TableGuess } from '../data/tableCatalogue'
 import { computeTierOptions } from './tiers'
 import { round2 } from './round'
 import type { ParsedUsage, UsageRow } from './usageParser'
@@ -23,6 +24,7 @@ export type OpportunityKind =
   | 'commitment-tier'
   | 'tier-placement'
   | 'billed-but-free'
+  | 'operational-data'
   | 'needs-input'
 
 export interface Opportunity {
@@ -35,10 +37,14 @@ export interface Opportunity {
   tables: string[]
   /** True when we cannot act without the user telling us something */
   needsUserInput?: boolean
+  /** Amount at stake, where it is not a saving we can claim outright */
+  contextUsd?: number
 }
 
 export interface AnalysedTable extends UsageRow {
   match: TableMatch | null
+  /** Best-effort family identification when the table is not catalogued */
+  guess: TableGuess | null
   /** Current monthly cost at the rate for its plan */
   monthlyCostUsd: number
   /** Set when moving this table to Data Lake would save money */
@@ -103,13 +109,21 @@ export function analyseUsage(
       match.recommendation === 'data-lake'
       && row.plan === 'Analytics'
       && row.billableGbPerDay > 0
+      // Some tables cannot be switched to the Lake plan at all — Microsoft
+      // publishes "Auxiliary / Lake table support: No" for them. Recommending
+      // a move would be advice the customer physically cannot follow.
+      && match.lakeCapable
     ) {
       status = 'move-to-lake'
       potentialSavingUsd =
         row.billableGbPerDay * (pricing.paygRateUsd - pricing.dataLakeRateUsd) * DAYS_PER_MONTH
     }
 
-    return { ...row, match, monthlyCostUsd, potentialSavingUsd, status }
+    return {
+      ...row, match,
+      guess: match ? null : guessTable(row.tableName),
+      monthlyCostUsd, potentialSavingUsd, status,
+    }
   })
 
   const sumBy = (f: (t: AnalysedTable) => number) => tables.reduce((a, t) => a + f(t), 0)
@@ -153,8 +167,9 @@ export function analyseUsage(
       title: `Move ${movable.length} high-volume table${movable.length === 1 ? '' : 's'} to the Data Lake tier`,
       detail:
         `These carry investigative rather than real-time detection value, and Data Lake ingestion `
-        + `costs a fraction of Analytics. Queries become slower and more limited, so keep anything `
-        + `an active detection rule depends on where it is.`,
+        + `costs a fraction of Analytics. Two things to check before moving anything: alerts stop `
+        + `working on a table once it moves to the Lake plan, and Microsoft allows only one plan `
+        + `change per table per week — so verify nothing you detect on depends on these first.`,
       monthlySavingUsd: movable.reduce((a, t) => a + t.potentialSavingUsd, 0),
       tables: movable.map(t => t.tableName),
     })
@@ -197,7 +212,34 @@ export function analyseUsage(
     }
   }
 
-  // ── 4. Tables we will not guess about ─────────────────────────────────────
+  // ── 4. Operational data paying Sentinel rates ─────────────────────────────
+  //
+  // Enabling Sentinel on a workspace means everything in it attracts Sentinel
+  // charges, including data with no security purpose. Microsoft's own guidance
+  // is to separate the two — but frames it as a trade-off, not a rule, so this
+  // is reported as something to investigate rather than a costed saving.
+  const operational = tables.filter(t => t.match?.category === 'operational' && t.billableGbPerDay > 0)
+  const operationalMonthlyUsd = operational.reduce((a, t) => a + t.monthlyCostUsd, 0)
+  if (operational.length > 0) {
+    opportunities.push({
+      kind: 'operational-data',
+      title: `${operational.length} operational table${operational.length === 1 ? '' : 's'} paying Sentinel rates`,
+      detail:
+        `Enabling Sentinel on a workspace means everything in it attracts Sentinel charges, including `
+        + `data with no security purpose. Microsoft recommends keeping operational data in a separate `
+        + `workspace — but check two things first: combining volume can reach a commitment tier that `
+        + `neither workspace would reach alone, and a workspace without Sentinel gets 31 days of free `
+        + `retention rather than 90. Below roughly 100 GB/day combined, separating usually wins.`,
+      // Deliberately zero: whether this is a saving depends on the two effects
+      // above, so it must not inflate a headline number we would have to defend.
+      monthlySavingUsd: 0,
+      tables: operational.map(t => t.tableName),
+      needsUserInput: true,
+      contextUsd: operationalMonthlyUsd,
+    })
+  }
+
+  // ── 5. Tables we will not guess about ─────────────────────────────────────
   const needsInput = tables.filter(t => t.status === 'needs-input')
   if (needsInput.length > 0) {
     opportunities.push({

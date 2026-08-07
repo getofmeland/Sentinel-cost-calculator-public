@@ -1,6 +1,10 @@
 import { SOURCE_TABLE_MAPPINGS } from './sentinelTables'
 import { getDefaultTier, TIER_PLACEMENT_DEFAULTS, type TierRecommendation } from './tierPlacement'
 import { LOG_SOURCES } from './pricing'
+import {
+  lookupTable, guessFromName, TABLE_CATALOGUE,
+  type DataCategory, type TableGuess,
+} from './tableCatalogue'
 
 /**
  * Reverse index from Sentinel table name to the log source that produces it.
@@ -21,6 +25,22 @@ export interface TableMatch {
   table: string
   /** Every source that claims this table */
   sourceIds: string[]
+  /**
+   * Whether the table can be switched to the Auxiliary/Lake plan at all.
+   *
+   * Microsoft publishes "Auxiliary / Lake table support: No" for a number of
+   * tables — ThreatIntelIndicators among them — and no cost pressure changes
+   * that. Recommending a move for one would be advice the customer physically
+   * cannot follow. Defaults true for tables we only know through the source
+   * mapping, which are the common security tables that do support it.
+   */
+  lakeCapable: boolean
+  /** Security, operational, mixed or platform, when known */
+  category: DataCategory | null
+  /** Extra warning specific to this table */
+  caveat: string | null
+  /** Human description, when catalogued */
+  description: string | null
   /**
    * The tier we recommend, when every claimant agrees. Null when claimants
    * disagree, which means the user has to say what the table actually contains.
@@ -56,6 +76,7 @@ function buildIndex(): Map<string, TableMatch> {
   for (const [key, sourceIds] of claims) {
     const recommendations = [...new Set(sourceIds.map(getDefaultTier))]
     const agreed = recommendations.length === 1
+    const catalogued = lookupTable(key)
 
     index.set(key, {
       table: key,
@@ -66,6 +87,31 @@ function buildIndex(): Map<string, TableMatch> {
       reason: agreed ? (reasonBySource.get(sourceIds[0]) ?? null) : null,
       // Free only if every claimant is free; a mixed table is billable.
       isFree: sourceIds.every(id => freeSourceIds.has(id)),
+      lakeCapable: catalogued?.lakeCapable ?? true,
+      category: catalogued?.category ?? null,
+      caveat: catalogued?.caveat ?? null,
+      description: catalogued?.description ?? null,
+    })
+  }
+
+  // Catalogued tables the source mapping does not cover — multi-cloud, threat
+  // intelligence, and the operational data that makes up much of a real
+  // workspace. These are the ones a tester found reported as "Unrecognised".
+  for (const entry of TABLE_CATALOGUE) {
+    const key = entry.name.toLowerCase()
+    if (index.has(key)) continue
+    index.set(key, {
+      table: key,
+      sourceIds: [],
+      recommendation: entry.recommendedTier,
+      ambiguousButAgreed: false,
+      needsUserInput: false,
+      reason: entry.reason,
+      isFree: !entry.billable,
+      lakeCapable: entry.lakeCapable,
+      category: entry.category,
+      caveat: entry.caveat ?? null,
+      description: entry.description,
     })
   }
 
@@ -77,6 +123,16 @@ const TABLE_INDEX = buildIndex()
 /** Look up a measured table name. Case-insensitive; null when unmapped. */
 export function matchTable(tableName: string): TableMatch | null {
   return TABLE_INDEX.get(tableName.trim().toLowerCase()) ?? null
+}
+
+/**
+ * Best-effort identification for a table we do not know, from naming
+ * convention alone. Names the likely family and stops — it never yields a tier
+ * recommendation, because guessing what a table contains is no basis for
+ * telling someone to move their data.
+ */
+export function guessTable(tableName: string): TableGuess | null {
+  return guessFromName(tableName)
 }
 
 export function indexedTableCount(): number {

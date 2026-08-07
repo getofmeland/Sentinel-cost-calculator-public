@@ -12,6 +12,7 @@ const KIND_LABEL: Record<Opportunity['kind'], string> = {
   'billed-but-free': 'Misconfiguration',
   'tier-placement': 'Tier placement',
   'commitment-tier': 'Commitment tier',
+  'operational-data': 'Workspace design',
   'needs-input': 'Needs your input',
 }
 
@@ -149,7 +150,14 @@ export function SavingsReport({ result }: Props) {
       {/* ── Things we will not guess about ──────────────────────────────── */}
       {questions.map(o => (
         <div key={o.kind} className="rounded-xl border border-warning/40 bg-warning/10 px-6 py-4">
-          <p className="text-sm font-medium text-light">{o.title}</p>
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-sm font-medium text-light">{o.title}</p>
+            {o.contextUsd !== undefined && o.contextUsd > 0 && (
+              <span className="text-sm font-mono font-semibold text-light flex-shrink-0">
+                {money(o.contextUsd)}<span className="text-[10px] font-normal text-light/70 ml-1">/mo at stake</span>
+              </span>
+            )}
+          </div>
           <p className="text-xs text-light/80 mt-1 max-w-2xl">{o.detail}</p>
           <p className="text-[11px] font-mono text-light/70 mt-2">{o.tables.join(', ')}</p>
         </div>
@@ -234,6 +242,16 @@ export function SavingsReport({ result }: Props) {
                     {t.match?.reason && (
                       <p className="text-[10px] text-light/60 mt-0.5 max-w-md">{t.match.reason}</p>
                     )}
+                    {t.match?.caveat && (
+                      <p className="text-[10px] text-accent-text mt-0.5 max-w-md">⚠ {t.match.caveat}</p>
+                    )}
+                    {/* Not catalogued, but the name tells us something. Names the
+                        family and stops — never a tier recommendation. */}
+                    {!t.match && t.guess && (
+                      <p className="text-[10px] text-light/60 mt-0.5 max-w-md">
+                        <span className="text-light/80">Likely {t.guess.label}.</span> {t.guess.note}
+                      </p>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-xs text-light/70">{t.plan}</td>
                   <td className="px-4 py-2 text-right font-mono text-xs text-light/70">
@@ -253,8 +271,10 @@ export function SavingsReport({ result }: Props) {
                               : 'text-light/70'
                         }
                       >
-                        {STATUS_LABEL[t.status]}
+                        {t.status === 'unclassified' && t.guess ? t.guess.label : STATUS_LABEL[t.status]}
                         {t.potentialSavingUsd > 0 && ` · ${money(t.potentialSavingUsd)}/mo`}
+                        {t.match && !t.match.lakeCapable && t.match.recommendation === 'analytics'
+                          && <span className="block text-[10px] text-light/60">Lake plan not supported</span>}
                       </span>
                     )}
                   </td>
