@@ -3,6 +3,7 @@ import {
   USAGE_QUERY,
   USAGE_QUERY_NOTES,
   USAGE_QUERY_LIMITATIONS,
+  USAGE_QUERY_ERRORS,
   USAGE_LOOKBACK_DAYS,
 } from '../../data/usageQuery'
 
@@ -69,7 +70,21 @@ export function QueryPanel() {
           ))}
         </div>
 
-        <details className="mt-4 group">
+        <details className="mt-4">
+          <summary className="text-xs text-light/70 cursor-pointer hover:text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded">
+            If the query returns an error
+          </summary>
+          <dl className="mt-2 space-y-2.5">
+            {USAGE_QUERY_ERRORS.map(e => (
+              <div key={e.message}>
+                <dt className="text-xs font-mono text-accent-text">{e.message}</dt>
+                <dd className="text-xs text-light/60 mt-0.5">{e.cause}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+
+        <details className="mt-3">
           <summary className="text-xs text-light/70 cursor-pointer hover:text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded">
             What this measurement cannot see
           </summary>

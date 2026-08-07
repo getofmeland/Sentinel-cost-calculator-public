@@ -51,6 +51,13 @@ Usage
  */
 export const USAGE_QUERY_NOTES = [
   {
+    title: 'Run it on the Logs surface, not Advanced hunting',
+    body:
+      'Usage is a Log Analytics workspace table. In the Azure portal: Log Analytics workspaces → '
+      + 'your workspace → Logs. In the Defender portal: Microsoft Sentinel → Logs. Advanced hunting '
+      + 'uses the Defender XDR schema and has no Usage table, so the query cannot resolve there.',
+  },
+  {
     title: 'Set the time range to "Set in query"',
     body:
       'The portal time picker defaults to 24 hours and will silently override the query, giving you '
@@ -58,10 +65,10 @@ export const USAGE_QUERY_NOTES = [
       + 'filter, so set the picker to "Set in query" before running it.',
   },
   {
-    title: 'Run it from the Log Analytics workspace',
+    title: 'Open Logs from the workspace, not from a resource',
     body:
-      'Open Logs from the workspace itself rather than from an individual resource. Resource-scoped '
-      + 'queries only cover Analytics-plan tables, so Basic and Auxiliary volume would be missing.',
+      'Resource-scoped queries only cover Analytics-plan tables, so Basic and Auxiliary volume '
+      + 'would be missing from the result.',
   },
   {
     title: 'You need Log Analytics Reader',
@@ -69,6 +76,26 @@ export const USAGE_QUERY_NOTES = [
       'Reader, Contributor, Owner or Microsoft Sentinel Reader also work. If table-level RBAC hides '
       + 'tables from you, those queries succeed but return nothing — no error — so the result would '
       + 'be quietly incomplete.',
+  },
+] as const
+
+/**
+ * Errors users have actually hit, with the cause rather than a restatement of
+ * the message. Both of these were reported against shipped versions.
+ */
+export const USAGE_QUERY_ERRORS = [
+  {
+    message: "Failed to resolve table or column expression named 'Usage'",
+    cause:
+      'You are almost certainly in Advanced hunting, which uses the Defender XDR schema and has no '
+      + 'Usage table. Switch to Microsoft Sentinel → Logs in the Defender portal, or open Logs from '
+      + 'the Log Analytics workspace in the Azure portal. It can also mean no workspace is selected.',
+  },
+  {
+    message: "ago(): argument #1 was not of an expected data type: timespan",
+    cause:
+      'An older copy of this query. Copy it again from above — the lookback needs its unit suffix '
+      + '(31d rather than 31).',
   },
 ] as const
 
