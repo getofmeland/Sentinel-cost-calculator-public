@@ -27,7 +27,7 @@ const TSV = [
 ].join('\n')
 
 // Comma-separated, fully quoted, BOM-prefixed, CRLF — the typical CSV export.
-const CSV = '﻿' + [
+const CSV = '\uFEFF' + [
   '"TableName","Plan","TotalMB","BillableMB"',
   '"CommonSecurityLog","Analytics","1240000","1240000"',
   '"SecurityEvent","Analytics","890000","890000"',

@@ -128,7 +128,7 @@ export function sniffDelimiter(lines: string[]): string {
  * that does not parse cleanly is rejected rather than guessed at.
  */
 export function parseNumber(raw: string): number | null {
-  const cleaned = raw.trim().replace(/[\s ]/g, '').replace(/,/g, '')
+  const cleaned = raw.trim().replace(/[\s\u00A0]/g, '').replace(/,/g, '')
   if (cleaned === '' || cleaned === '-') return null
   const n = Number(cleaned)
   return Number.isFinite(n) && n >= 0 ? n : null
@@ -155,8 +155,9 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
     throw new UsageParseError('Nothing to read.', 'Paste the results of the query above.')
   }
 
-  // Strip a UTF-8 BOM, which CSV exports commonly carry, and normalise endings.
-  const text = input.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
+  // Strip a UTF-8 BOM (\uFEFF), which CSV exports commonly carry, and normalise
+  // line endings. Written as an escape rather than a literal so it is visible.
+  const text = input.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
   const lines = text.split('\n').map(l => l.trimEnd()).filter(l => l.trim() !== '')
 
   if (lines.length === 0) {
