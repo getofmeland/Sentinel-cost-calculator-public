@@ -44,6 +44,21 @@ flat-rate with no discount. Sizing a tier against total billable volume is wrong
 A graph build runs on 49 vCores, so it costs 49x the hourly rate. Both meters are
 opt-in and default off — enabling the data lake does not bill them.
 
+**Table plan support is looked up, never assumed.** `src/data/tablePlanSupport.ts`
+holds Basic and Auxiliary/Lake support extracted verbatim from each table's
+generated reference page, and `tableCatalogue.test.ts` fails the build if a
+catalogue entry disagrees with it. A release once told users to move sixteen
+operational tables — `Perf`, `ContainerLogV2`, the Application Insights set — to
+the Lake tier. None of them support it. The refusal logic was already correct;
+the `lakeCapable` values fed to it were guessed from "this table is big and
+boring", which is not evidence. A table Microsoft does not document must be
+marked not-capable: unverified is not the same as supported.
+
+Beware two lookalike columns. The Sentinel connectors reference publishes
+"Lake-only ingestion supported", which is about how a connector ingests, not
+which plans a table plan supports. The two disagree in practice, so that column
+is deliberately not imported.
+
 **Do not sum savings that are not independent.** Two bugs of this shape have
 already shipped: a licence grant credited against a tier already sized net of it,
 and Analyse-mode opportunities summed against pre-move volume. Apply them in

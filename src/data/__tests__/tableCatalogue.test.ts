@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { TABLE_CATALOGUE } from '../tableCatalogue'
-import { matchTable, isAlwaysFreeTable } from '../tableIndex'
+import { matchTable, isAlwaysFreeTable, attributeTable, indexedTableCount } from '../tableIndex'
+import { publishedPlanSupport, verifiedTableCount } from '../tablePlanSupport'
+import { attributedTableCount } from '../connectorIndex'
 
 /**
  * These cover the attributes that change what the tool *advises*, not merely
@@ -33,6 +35,78 @@ describe('table catalogue integrity', () => {
       e => e.recommendedTier === 'data-lake' && !e.lakeCapable,
     )
     expect(impossible.map(e => e.name)).toEqual([])
+  })
+})
+
+describe('catalogue agrees with what Microsoft publishes', () => {
+  // The guard that produced this suite. A previous release recommended moving
+  // sixteen operational tables to the Lake tier; none of them support it. The
+  // refusal logic was correct and the data was assumed, so nothing caught it.
+  it('every catalogued lakeCapable matches the published value', () => {
+    const wrong: string[] = []
+    for (const e of TABLE_CATALOGUE) {
+      const published = publishedPlanSupport(e.name)
+      if (!published) continue
+      if (published.lake !== e.lakeCapable) {
+        wrong.push(`${e.name}: catalogue says ${e.lakeCapable}, Microsoft says ${published.lake}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('every catalogued basicCapable matches the published value', () => {
+    const wrong: string[] = []
+    for (const e of TABLE_CATALOGUE) {
+      const published = publishedPlanSupport(e.name)
+      if (!published) continue
+      if (published.basic !== e.basicCapable) {
+        wrong.push(`${e.name}: catalogue says ${e.basicCapable}, Microsoft says ${published.basic}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('undocumented tables claim no plan support', () => {
+    // Unverified is not the same as supported. A table Microsoft does not
+    // document must not be offered a move we cannot price.
+    for (const e of TABLE_CATALOGUE) {
+      if (publishedPlanSupport(e.name)) continue
+      expect(
+        { table: e.name, lakeCapable: e.lakeCapable, tier: e.recommendedTier },
+      ).toEqual(
+        { table: e.name, lakeCapable: false, tier: e.recommendedTier },
+      )
+      expect(e.recommendedTier).not.toBe('data-lake')
+    }
+  })
+
+  it('carries a meaningful number of verified and attributed tables', () => {
+    // Guards against a regeneration silently producing an empty file.
+    expect(verifiedTableCount()).toBeGreaterThan(150)
+    expect(attributedTableCount()).toBeGreaterThan(600)
+    expect(indexedTableCount()).toBeGreaterThan(100)
+  })
+})
+
+describe('connector attribution', () => {
+  it('names the connector for custom tables the catalogue does not cover', () => {
+    const a = attributeTable('alertsdlpdata_CL')
+    expect(a?.connectors).toContain('Netskope Data Connector')
+    expect(a?.customSchema).toBe(true)
+  })
+
+  it('records every connector for a table several of them write to', () => {
+    const a = attributeTable('AzureDiagnostics')
+    expect((a?.connectors.length ?? 0)).toBeGreaterThan(1)
+  })
+
+  it('flags ASIM tables by prefix rather than a list that would go stale', () => {
+    expect(attributeTable('ASimDnsActivityLogs')?.asim).toBe(true)
+    expect(attributeTable('AWSCloudTrail')?.asim).toBe(false)
+  })
+
+  it('is case-insensitive and tolerates the whitespace a paste brings', () => {
+    expect(attributeTable('  awscloudtrail  ')?.name).toBe('AWSCloudTrail')
   })
 })
 

@@ -1,5 +1,8 @@
 import { PricingBundle, STATIC_PRICING_BUNDLE, DAYS_PER_MONTH } from '../data/pricing'
-import { matchTable, guessTable, isAlwaysFreeTable, type TableMatch } from '../data/tableIndex'
+import {
+  matchTable, guessTable, attributeTable, isAlwaysFreeTable, type TableMatch,
+} from '../data/tableIndex'
+import type { ConnectorAttribution } from '../data/connectorIndex'
 import type { TableGuess } from '../data/tableCatalogue'
 import { computeTierOptions } from './tiers'
 import { round2 } from './round'
@@ -45,6 +48,11 @@ export interface AnalysedTable extends UsageRow {
   match: TableMatch | null
   /** Best-effort family identification when the table is not catalogued */
   guess: TableGuess | null
+  /**
+   * The connector documented as writing this table, when the catalogue has no
+   * entry. Names the source without claiming anything about its cost.
+   */
+  attribution: ConnectorAttribution | null
   /** Current monthly cost at the rate for its plan */
   monthlyCostUsd: number
   /** Set when moving this table to Data Lake would save money */
@@ -122,6 +130,7 @@ export function analyseUsage(
     return {
       ...row, match,
       guess: match ? null : guessTable(row.tableName),
+      attribution: match ? null : attributeTable(row.tableName),
       monthlyCostUsd, potentialSavingUsd, status,
     }
   })

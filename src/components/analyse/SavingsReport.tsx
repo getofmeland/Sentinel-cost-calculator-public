@@ -245,9 +245,20 @@ export function SavingsReport({ result }: Props) {
                     {t.match?.caveat && (
                       <p className="text-[10px] text-accent-text mt-0.5 max-w-md">⚠ {t.match.caveat}</p>
                     )}
-                    {/* Not catalogued, but the name tells us something. Names the
-                        family and stops — never a tier recommendation. */}
-                    {!t.match && t.guess && (
+                    {/* Not catalogued. Attribution first — which connector writes
+                        the table is documented fact, so it outranks anything
+                        inferred from the name. Neither yields a tier. */}
+                    {!t.match && t.attribution && t.attribution.connectors.length > 0 && (
+                      <p className="text-[10px] text-light/60 mt-0.5 max-w-md">
+                        <span className="text-light/80">
+                          From {t.attribution.connectors.join(', ')}.
+                        </span>{' '}
+                        {t.attribution.customSchema
+                          ? 'Custom-schema table. We do not hold verified billing or Lake-plan detail for it, so no tier is suggested.'
+                          : 'Not yet catalogued, so no tier is suggested.'}
+                      </p>
+                    )}
+                    {!t.match && !t.attribution && t.guess && (
                       <p className="text-[10px] text-light/60 mt-0.5 max-w-md">
                         <span className="text-light/80">Likely {t.guess.label}.</span> {t.guess.note}
                       </p>
@@ -271,7 +282,9 @@ export function SavingsReport({ result }: Props) {
                               : 'text-light/70'
                         }
                       >
-                        {t.status === 'unclassified' && t.guess ? t.guess.label : STATUS_LABEL[t.status]}
+                        {t.status === 'unclassified'
+                          ? (t.attribution?.connectors[0] ?? t.guess?.label ?? STATUS_LABEL[t.status])
+                          : STATUS_LABEL[t.status]}
                         {t.potentialSavingUsd > 0 && ` · ${money(t.potentialSavingUsd)}/mo`}
                         {t.match && !t.match.lakeCapable && t.match.recommendation === 'analytics'
                           && <span className="block text-[10px] text-light/60">Lake plan not supported</span>}

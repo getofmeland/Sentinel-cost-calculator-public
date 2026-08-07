@@ -5,6 +5,7 @@ import {
   lookupTable, guessFromName, TABLE_CATALOGUE,
   type DataCategory, type TableGuess,
 } from './tableCatalogue'
+import { lookupConnectors, type ConnectorAttribution } from './connectorIndex'
 
 /**
  * Reverse index from Sentinel table name to the log source that produces it.
@@ -54,6 +55,14 @@ export interface TableMatch {
   reason: string | null
   /** True when Microsoft does not charge for this table */
   isFree: boolean
+  /**
+   * Connectors documented as writing to this table, when known.
+   *
+   * Attribution only — it never contributes to the tier decision. A table can
+   * arrive from several connectors, and which one you run changes nothing about
+   * what the table costs or which plans it supports.
+   */
+  connectors: string[]
 }
 
 function buildIndex(): Map<string, TableMatch> {
@@ -91,6 +100,7 @@ function buildIndex(): Map<string, TableMatch> {
       category: catalogued?.category ?? null,
       caveat: catalogued?.caveat ?? null,
       description: catalogued?.description ?? null,
+      connectors: lookupConnectors(key)?.connectors ?? [],
     })
   }
 
@@ -112,6 +122,7 @@ function buildIndex(): Map<string, TableMatch> {
       category: entry.category,
       caveat: entry.caveat ?? null,
       description: entry.description,
+      connectors: lookupConnectors(key)?.connectors ?? [],
     })
   }
 
@@ -133,6 +144,18 @@ export function matchTable(tableName: string): TableMatch | null {
  */
 export function guessTable(tableName: string): TableGuess | null {
   return guessFromName(tableName)
+}
+
+/**
+ * Which connector writes a table, for tables the catalogue does not cover.
+ *
+ * This is the difference between "Unrecognised" and "Netskope Data Connector"
+ * on a row the tool otherwise has nothing to say about. It is deliberately
+ * weaker than a catalogue entry: it names the source and stops, because knowing
+ * who sent the data tells you nothing about what it costs to keep.
+ */
+export function attributeTable(tableName: string): ConnectorAttribution | null {
+  return lookupConnectors(tableName)
 }
 
 export function indexedTableCount(): number {
