@@ -57,8 +57,8 @@ Three caveats the tool states on screen:
 ## Quick start
 
 ```bash
-git clone https://github.com/CloudSecurityInsider/sentinel-cost-calculator-public.git
-cd sentinel-cost-calculator
+git clone https://github.com/getofmeland/Sentinel-cost-calculator-public.git
+cd Sentinel-cost-calculator-public
 npm install
 npm run dev
 ```
