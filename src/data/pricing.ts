@@ -125,6 +125,29 @@ export const ANALYTICS_ARCHIVE_RATE_USD_PER_GB_PER_MONTH = 0.025
 /** Meter: Sentinel / "Data lake storage Data Stored" */
 export const DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH = 0.024
 
+// ─── Basic and Auxiliary Log Plans ───────────────────────────────────────────
+//
+// Two further table plans, billed per GB at flat rates. Analyse mode needs them
+// because measured ingestion reports a Plan per table, and pricing a Basic table
+// at the Analytics rate would overstate its cost roughly fivefold.
+//
+// Critically, these are NOT eligible for commitment tier discounts:
+//   "Commitment tiers apply only to Analytics Logs ingestion. Ingestion of Basic
+//    Logs and Auxiliary Logs is billed at flat per-GB rates and isn't covered by
+//    commitment-tier discounts."
+// So a commitment tier must only ever be sized against Analytics-plan volume.
+// https://learn.microsoft.com/en-us/azure/azure-monitor/logs/cost-logs
+
+/** Meter: Sentinel / "Basic Logs Analysis" */
+export const BASIC_LOGS_RATE_USD_PER_GB = 1.13
+
+/**
+ * Meter: Sentinel / "Classic Auxiliary Logs Analysis".
+ * Microsoft now labels this plan "Auxiliary / Lake" in the portal — lake-only
+ * ingestion reports under it — while the API value remains "Auxiliary".
+ */
+export const AUXILIARY_LOGS_RATE_USD_PER_GB = 0.0625
+
 // ─── Data Lake Compute ───────────────────────────────────────────────────────
 //
 // Two meters bill compute rather than data volume. Both report a unit of
@@ -539,6 +562,10 @@ export interface PricingBundle {
   graphRateUsdPerVCoreHour: number
   /** Per vCore-hour, not per pool-hour */
   advancedDataInsightsRateUsdPerVCoreHour: number
+  /** Flat per-GB; NOT covered by commitment tiers */
+  basicLogsRateUsd: number
+  /** Flat per-GB; NOT covered by commitment tiers */
+  auxiliaryLogsRateUsd: number
 }
 
 export const STATIC_PRICING_BUNDLE: PricingBundle = {
@@ -550,4 +577,6 @@ export const STATIC_PRICING_BUNDLE: PricingBundle = {
   dataLakeQueryRateUsd: DATA_LAKE_QUERY_RATE_USD_PER_GB,
   graphRateUsdPerVCoreHour: GRAPH_RATE_USD_PER_VCORE_HOUR,
   advancedDataInsightsRateUsdPerVCoreHour: ADVANCED_DATA_INSIGHTS_RATE_USD_PER_VCORE_HOUR,
+  basicLogsRateUsd: BASIC_LOGS_RATE_USD_PER_GB,
+  auxiliaryLogsRateUsd: AUXILIARY_LOGS_RATE_USD_PER_GB,
 }

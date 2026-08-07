@@ -128,6 +128,8 @@ const METERS = {
   lakeStorage: 'Data lake storage Data Stored',
   graph: 'Graph',
   advancedDataInsights: 'Advanced Data Insights',
+  basicLogs: 'Basic Logs Analysis',
+  auxiliaryLogs: 'Classic Auxiliary Logs Analysis',
 } as const
 
 function priceOf(items: AzurePriceItem[], meterName: string): number | null {
@@ -250,6 +252,10 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       advancedDataInsightsRateUsdPerVCoreHour:
         priceOf(items, METERS.advancedDataInsights)
         ?? STATIC_PRICING_BUNDLE.advancedDataInsightsRateUsdPerVCoreHour,
+      basicLogsRateUsd:
+        priceOf(items, METERS.basicLogs) ?? STATIC_PRICING_BUNDLE.basicLogsRateUsd,
+      auxiliaryLogsRateUsd:
+        priceOf(items, METERS.auxiliaryLogs) ?? STATIC_PRICING_BUNDLE.auxiliaryLogsRateUsd,
     }
 
     const entry: CacheEntry = { data: bundle, fetchedAt: Date.now(), isLive: true }
