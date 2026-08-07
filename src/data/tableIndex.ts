@@ -6,6 +6,7 @@ import {
   type DataCategory, type TableGuess,
 } from './tableCatalogue'
 import { lookupConnectors, type ConnectorAttribution } from './connectorIndex'
+import { publishedPlanSupport } from './tablePlanSupport'
 
 /**
  * Reverse index from Sentinel table name to the log source that produces it.
@@ -43,6 +44,13 @@ export interface TableMatch {
    * and a wrong true here becomes an impossible recommendation.
    */
   basicCapable: boolean
+  /**
+   * Whether Microsoft publishes DCR workspace-transformation support for this
+   * table — the prerequisite for filtering at ingestion. Null when the table is
+   * not documented, which is not the same as false and must not be treated as
+   * either a yes or a hard no.
+   */
+  dcrCapable: boolean | null
   /** Security, operational, mixed or platform, when known */
   category: DataCategory | null
   /** Extra warning specific to this table */
@@ -109,6 +117,7 @@ function buildIndex(): Map<string, TableMatch> {
       caveat: catalogued?.caveat ?? null,
       description: catalogued?.description ?? null,
       connectors: lookupConnectors(key)?.connectors ?? [],
+      dcrCapable: publishedPlanSupport(key)?.dcr ?? null,
     })
   }
 
@@ -132,6 +141,7 @@ function buildIndex(): Map<string, TableMatch> {
       caveat: entry.caveat ?? null,
       description: entry.description,
       connectors: lookupConnectors(key)?.connectors ?? [],
+      dcrCapable: publishedPlanSupport(key)?.dcr ?? null,
     })
   }
 

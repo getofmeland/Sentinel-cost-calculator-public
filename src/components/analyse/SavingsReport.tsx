@@ -133,6 +133,19 @@ export function SavingsReport({ result }: Props) {
                       <span className="text-sm font-medium text-light">{o.title}</span>
                     </div>
                     <p className="text-xs text-light/60 mt-1.5 max-w-2xl">{o.detail}</p>
+                    {o.kind === 'commitment-tier' && result.dailySizing?.disagrees && (
+                      <p className="text-xs text-light/80 mt-1.5 max-w-2xl">
+                        Sizing on the average would have cost{' '}
+                        {money(result.dailySizing.differenceMonthlyUsd)}/mo more.
+                      </p>
+                    )}
+                    {o.kind === 'commitment-tier' && result.dailyPasteDiverges && (
+                      <p className="text-xs text-accent-text mt-1.5 max-w-2xl">
+                        Your two queries report noticeably different Analytics averages, which usually
+                        means they cover different periods. The daily results have been rescaled to
+                        match the per-table figures, but re-running both together would be safer.
+                      </p>
+                    )}
                     {o.tables.length > 0 && (
                       <p className="text-[11px] font-mono text-light/60 mt-1.5">
                         {o.tables.slice(0, 6).join(', ')}
@@ -148,6 +161,71 @@ export function SavingsReport({ result }: Props) {
               </li>
             ))}
           </ol>
+        </div>
+      )}
+
+      {/* ── Filter at ingestion ─────────────────────────────────────────
+          Deliberately below the ranked list and carrying no saving figure.
+          Removing the data beats repricing it, but how much a filter removes
+          depends on the estate, and a number we cannot substantiate would be
+          the most attractive wrong figure on the page. */}
+      {result.offeredTransforms.length > 0 && (
+        <div className="rounded-xl border border-white/10 bg-surface overflow-hidden">
+          <div className="px-6 py-4 border-b border-white/10">
+            <p className="text-sm font-semibold text-light">Filter at ingestion</p>
+            <p className="text-xs text-light/60 mt-0.5 max-w-2xl">
+              A data collection rule transformation drops rows before they are stored, so they are
+              never billed at all — which beats moving a table to a cheaper plan. No saving is
+              claimed here: how much each filter removes depends entirely on what your estate sends.
+              Run each snippet as a query first, with the table name in place of{' '}
+              <code className="font-mono text-light/80">source</code>, to measure the real effect.
+            </p>
+          </div>
+          <ul className="divide-y divide-white/10">
+            {result.offeredTransforms.map((o, i) => (
+              <li key={`${o.tableName}-${o.transform.title ?? 'main'}`} className="px-6 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <p className="text-sm font-medium text-light">
+                    {o.tableName}
+                    {o.transform.title && (
+                      <span className="text-light/60 font-normal"> — {o.transform.title}</span>
+                    )}
+                  </p>
+                  {/* Cost shown once per table. Repeating it against each
+                      snippet would read as two separate opportunities on the
+                      same spend. */}
+                  {result.offeredTransforms.findIndex(x => x.tableName === o.tableName) === i && (
+                    <span className="text-xs font-mono text-light/70 flex-shrink-0">
+                      {money(o.monthlyCostUsd)}<span className="text-[10px] text-light/60 ml-1">/mo today</span>
+                    </span>
+                  )}
+                </div>
+                <pre className="mt-2 p-3 rounded-lg bg-black/30 border border-white/10 text-[11px] font-mono text-light/80 overflow-x-auto whitespace-pre-wrap break-words">
+                  {o.transform.transformKql}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(o.transform.transformKql)}
+                  className="mt-1.5 text-[11px] text-primary-text hover:underline"
+                >
+                  Copy transformKql
+                </button>
+                {/* A data flow carries ONE transformKql per destination table,
+                    so copying a second snippet over the first replaces it. */}
+                {result.offeredTransforms.filter(x => x.tableName === o.tableName).length > 1 && (
+                  <p className="text-[11px] text-accent-text mt-1.5 max-w-2xl">
+                    {o.tableName} has more than one filter listed. A data collection rule holds a
+                    single transformation per table, so combine the clauses into one statement rather
+                    than applying them separately — the second would replace the first.
+                  </p>
+                )}
+                <p className="text-[11px] text-light/60 mt-2 max-w-2xl">{o.transform.reductionNote}</p>
+                <p className="text-[11px] text-accent-text mt-1.5 max-w-2xl">
+                  <span className="font-medium">What you lose:</span> {o.transform.risk}
+                </p>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

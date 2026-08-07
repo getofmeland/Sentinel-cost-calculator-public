@@ -5,6 +5,8 @@ import {
 import type { ConnectorAttribution } from '../data/connectorIndex'
 import type { TableGuess } from '../data/tableCatalogue'
 import { computeTierOptions } from './tiers'
+import { sizeTierOnDailyVolume, type DailySizingResult } from './tierSizing'
+import { transformsForTable, type DcrTransform } from '../data/dcrTransforms'
 import { round2 } from './round'
 import type { ParsedUsage, UsageRow } from './usageParser'
 
@@ -61,6 +63,13 @@ export interface AnalysedTable extends UsageRow {
   status: 'ok' | 'move-to-lake' | 'move-to-basic' | 'should-be-free' | 'needs-input' | 'unclassified'
 }
 
+/** An ingestion filter offered for a table the paste actually contains. */
+export interface OfferedTransform {
+  tableName: string
+  monthlyCostUsd: number
+  transform: DcrTransform
+}
+
 export interface AnalysisResult {
   tables: AnalysedTable[]
   /** What they are spending now, on measured ingestion only */
@@ -84,6 +93,21 @@ export interface AnalysisResult {
   recommendedTierLabel: string | null
   /** Analytics GB/day remaining once the recommended moves are made */
   analyticsGbPerDayAfterMoves: number
+  /** Present only when the optional daily volume query was supplied AND usable */
+  dailySizing: DailySizingResult | null
+  /**
+   * True when the two pastes' Analytics averages differ enough to suggest they
+   * were taken from different periods. The shape is rescaled to the per-table
+   * paste regardless, so figures stay consistent — but a stale second query is
+   * worth saying out loud.
+   */
+  dailyPasteDiverges: boolean
+  /**
+   * Ingestion filters available for tables in this paste, largest spend first.
+   * Carries no saving figure: how much a filter removes depends on the estate,
+   * and Microsoft publishes no reduction percentages to borrow.
+   */
+  offeredTransforms: OfferedTransform[]
 }
 
 /** Rate per GB for a table, by plan. Basic and Auxiliary are flat-rate. */
@@ -96,6 +120,12 @@ function rateForPlan(row: UsageRow, pricing: PricingBundle): number {
 export function analyseUsage(
   usage: ParsedUsage,
   pricing: PricingBundle = STATIC_PRICING_BUNDLE,
+  /**
+   * Optional Analytics-plan volume for each observed day, from the second
+   * query. Absent, tier sizing falls back to the period average exactly as
+   * before — this only ever adds precision, never changes the default.
+   */
+  analyticsGbByDay?: number[],
 ): AnalysisResult {
   const tables: AnalysedTable[] = usage.rows.map(row => {
     const match = matchTable(row.tableName)
@@ -238,16 +268,97 @@ export function analyseUsage(
       - basicMovable.reduce((a, t) => a + t.billableGbPerDay, 0),
   )
 
+  // ── Reconciling the two pastes ────────────────────────────────────────────
+  //
+  // The daily series arrives from a SECOND, independent paste. Two things went
+  // wrong when it was first wired up, both caught in review, and both are the
+  // "measured against different bases" family this file already warns about.
+  //
+  // 1. LEVEL. Subtracting a cost derived from the daily paste's volume from a
+  //    baseline derived from the per-table paste's volume compares two
+  //    different workspaces whenever the pastes were taken days apart. It
+  //    overstated a saving by 76% in review. The per-table paste is
+  //    authoritative for HOW MUCH; the daily paste contributes only the SHAPE,
+  //    so the series is rescaled to the per-table mean before it is used and
+  //    every figure then shares one base.
+  //
+  // 2. SHAPE AFTER MOVES. Scaling every day by the proportion the moves remove
+  //    assumes the moved tables are spread like everything else. When a moved
+  //    table is spiky — a backfill, a migration, precisely the case this
+  //    feature exists for — that invents a distribution that never existed, and
+  //    review demonstrated it recommending a tier that costs MORE than the
+  //    average-based sizing it replaces. Nothing in either paste says which days
+  //    a given table's volume fell on, so the honest answer is that the shape
+  //    cannot be carried across a material move. Below the threshold the
+  //    distortion cannot change the answer enough to matter; above it, we say so
+  //    and size on the average instead.
+  const MATERIAL_MOVE_FRACTION = 0.1
+  /** Below this the extrapolation to a month is guesswork, not measurement. */
+  const MIN_DAYS_TO_SIZE_ON = 14
+
+  const dailyMean = analyticsGbByDay?.length
+    ? analyticsGbByDay.reduce((a, b) => a + b, 0) / analyticsGbByDay.length
+    : 0
+  const movedFraction = analyticsToday > 0
+    ? (analyticsToday - analyticsRemaining) / analyticsToday
+    : 0
+
+  const tooFewDays = (analyticsGbByDay?.length ?? 0) < MIN_DAYS_TO_SIZE_ON
+  const movesTooLarge = movedFraction > MATERIAL_MOVE_FRACTION
+  const canUseDailyShape = dailyMean > 0 && !tooFewDays && !movesTooLarge
+
+  const daysAfterMoves = canUseDailyShape && analyticsGbByDay
+    // Rescale to the per-table mean, then to what the moves leave. The result
+    // has mean exactly analyticsRemaining, so it shares a base with payg below.
+    ? analyticsGbByDay.map(gb => gb * (analyticsRemaining / dailyMean))
+    : null
+  const dailySizing = daysAfterMoves ? sizeTierOnDailyVolume(daysAfterMoves, pricing) : null
+
+  // A large gap between the two pastes' averages means they describe different
+  // periods or different estates. The shape is still usable — it is rescaled
+  // above — but the user should know the second query is stale.
+  const pastesDiverge = dailyMean > 0 && analyticsToday > 0
+    && Math.abs(dailyMean - analyticsToday) / analyticsToday > 0.2
+
   const options = computeTierOptions(analyticsRemaining, pricing)
   const payg = options.find(o => o.isPayg)!
-  const recommended = options.find(o => o.isRecommended && !o.isPayg)
+  const averageRecommended = options.find(o => o.isRecommended && !o.isPayg)
+
+  // Day-by-day sizing supersedes the average when we have it, because it is the
+  // same arithmetic applied to real data rather than to a single flat number.
+  const recommendedLabel = dailySizing ? dailySizing.bestTierLabel : averageRecommended?.label ?? null
+  const recommended = recommendedLabel
+    ? options.find(o => o.label === recommendedLabel) ?? null
+    : null
 
   if (recommended) {
-    const saving = payg.monthlyCostUsd - recommended.monthlyCostUsd
+    const saving = dailySizing
+      ? payg.monthlyCostUsd - dailySizing.bestMonthlyUsd
+      : payg.monthlyCostUsd - recommended.monthlyCostUsd
     if (saving > 0) {
       const movedNote = analyticsRemaining < analyticsToday
         ? ` — down from ${analyticsToday.toFixed(1)} once the moves above are made`
         : ''
+      const variabilityNote = dailySizing
+        ? ` Sized against your ${dailySizing.dayCount} actual days rather than the average: after the `
+          + `moves above they range ${dailySizing.minGbPerDay.toFixed(1)} to `
+          + `${dailySizing.maxGbPerDay.toFixed(1)} GB/day. `
+          + (dailySizing.disagrees
+            ? `Sizing on the average alone would have picked `
+              + `${dailySizing.meanBasedTierLabel ?? 'pay-as-you-go'}, which costs more against those `
+              + `same days. Overage above a commitment bills at that tier's own rate, so committing `
+              + `slightly low costs little, while lowering a tier is only permitted every 31 days.`
+            : `The average would have picked the same tier.`)
+        : movesTooLarge
+          ? ` Sized on the period average. Your daily volume data cannot be used here: the moves above `
+            + `remove a large share of Analytics volume, and neither query says which days that volume `
+            + `fell on, so carrying the daily shape across would invent a pattern rather than measure `
+            + `one.`
+          : tooFewDays && (analyticsGbByDay?.length ?? 0) > 0
+            ? ` Sized on the period average. The daily volume data covers only `
+              + `${analyticsGbByDay?.length} days, too few to extrapolate a month from.`
+            : ` Sized on the period average — run the optional daily volume query for a tier sized `
+              + `against your actual day-to-day variation.`
       opportunities.push({
         kind: 'commitment-tier',
         title: `Move to the ${recommended.label} commitment tier`,
@@ -255,7 +366,7 @@ export function analyseUsage(
           `Your Analytics-tier ingestion would be ${analyticsRemaining.toFixed(1)} GB/day${movedNote}. `
           + `Committing to ${recommended.label} bills that at the tier rate instead of `
           + `pay-as-you-go. Basic and Auxiliary volume is excluded — commitment tiers do not `
-          + `cover those plans. Lowering a tier is only permitted every 31 days.`,
+          + `cover those plans.${variabilityNote}`,
         monthlySavingUsd: saving,
         tables: [],
       })
@@ -333,5 +444,22 @@ export function analyseUsage(
     currentTierLabel: 'Pay-as-you-go',
     recommendedTierLabel: recommended?.label ?? null,
     analyticsGbPerDayAfterMoves: round2(analyticsRemaining),
+    dailySizing,
+    dailyPasteDiverges: pastesDiverge,
+    // Deliberately outside the ranked opportunities and outside the headline.
+    // A filter's saving depends entirely on what the estate sends, and inventing
+    // a percentage to make the number bigger is the failure this tool exists to
+    // avoid. Offered as an action with the cost at stake, not as a claim.
+    offeredTransforms: tables
+      .filter(t => t.billableGbPerDay > 0)
+      .flatMap(t =>
+        transformsForTable(t.tableName, t.match?.dcrCapable ?? null)
+          .map(transform => ({
+            tableName: t.tableName,
+            monthlyCostUsd: t.monthlyCostUsd,
+            transform,
+          })),
+      )
+      .sort((a, b) => b.monthlyCostUsd - a.monthlyCostUsd),
   }
 }

@@ -22,6 +22,11 @@ export interface TierOption {
   breakevenGbPerDay: number | null
 }
 
+/** The single spelling of a tier's name, so labels cannot drift between callers. */
+export function tierLabel(tier: CommitmentTier): string {
+  return `${tier.gbPerDay} GB/day`
+}
+
 export function costAtVolume(tier: CommitmentTier, gbPerDay: number): number {
   if (gbPerDay <= tier.gbPerDay) {
     return tier.dailyCostUsd
@@ -59,7 +64,7 @@ export function computeTierOptions(
       paygDailyCostUsd > 0 ? (paygDailyCostUsd - dailyCostUsd) / paygDailyCostUsd : null
 
     return {
-      label: `${tier.gbPerDay} GB/day`,
+      label: tierLabel(tier),
       isPayg: false,
       tier,
       dailyCostUsd,

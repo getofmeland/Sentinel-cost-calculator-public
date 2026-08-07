@@ -80,6 +80,42 @@ export const USAGE_QUERY_NOTES = [
 ] as const
 
 /**
+ * Optional second query: billable volume per DAY, rather than per table.
+ *
+ * WHY A SECOND QUERY RATHER THAN MORE COLUMNS ON THE FIRST
+ *
+ * The main query is deliberately untouched. It works, people have run it, and a
+ * changed query means every saved copy silently returns the wrong shape. This
+ * one is additive: skip it and the analysis behaves exactly as before.
+ *
+ * WHAT IT UNLOCKS
+ *
+ * The main query returns a 31-day total, so the tool can only size a commitment
+ * tier against an AVERAGE. That is the wrong statistic for the decision, because
+ * commitment pricing is asymmetric in the customer's favour on one side only:
+ * volume above your commitment bills at that tier's own discounted rate, so
+ * under-committing costs little, while a tier can only be lowered every 31 days,
+ * so over-committing is locked in. Sizing to the mean of a spiky month
+ * systematically over-commits.
+ *
+ * With the daily series the tool stops estimating altogether: it prices every
+ * tier against the actual days observed and picks the cheapest. No percentile
+ * rule of thumb, no assumption about the shape of the distribution.
+ *
+ * Returns roughly one row per day per plan — about thirty lines.
+ */
+export const DAILY_VOLUME_QUERY = `// Billable volume per day — optional, improves commitment tier accuracy
+let Lookback = ${USAGE_LOOKBACK_DAYS}d;
+let PeriodStart = startofday(ago(Lookback));
+let PeriodEnd = startofday(now());
+Usage
+| where TimeGenerated >= PeriodStart and TimeGenerated < PeriodEnd
+| where StartTime >= PeriodStart and StartTime < PeriodEnd
+| summarize BillableMB = round(sumif(Quantity, tostring(IsBillable) =~ "true"), 1)
+  by Day = format_datetime(startofday(StartTime), 'yyyy-MM-dd'), Plan
+| order by Day asc`
+
+/**
  * Errors users have actually hit, with the cause rather than a restatement of
  * the message. Both of these were reported against shipped versions.
  */

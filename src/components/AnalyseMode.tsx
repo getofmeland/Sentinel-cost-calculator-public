@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { QueryPanel } from './analyse/QueryPanel'
 import { UsagePasteBox } from './analyse/UsagePasteBox'
+import { DailyVolumePanel } from './analyse/DailyVolumePanel'
 import { SavingsReport } from './analyse/SavingsReport'
 import { analyseUsage } from '../utils/analysis'
 import { usePricing } from '../contexts/PricingContext'
 import type { ParsedUsage } from '../utils/usageParser'
+import type { ParsedDailyVolume } from '../utils/dailyVolumeParser'
 
 /**
  * Analyse mode: measure an existing deployment and find savings, as opposed to
@@ -17,10 +19,11 @@ import type { ParsedUsage } from '../utils/usageParser'
 export function AnalyseMode() {
   const { pricing } = usePricing()
   const [parsed, setParsed] = useState<ParsedUsage | null>(null)
+  const [daily, setDaily] = useState<ParsedDailyVolume | null>(null)
 
   const result = useMemo(
-    () => (parsed ? analyseUsage(parsed, pricing) : null),
-    [parsed, pricing],
+    () => (parsed ? analyseUsage(parsed, pricing, daily?.analyticsGbByDay) : null),
+    [parsed, daily, pricing],
   )
 
   return (
@@ -34,7 +37,15 @@ export function AnalyseMode() {
       </div>
 
       <QueryPanel />
-      <UsagePasteBox parsed={parsed} onParsed={setParsed} />
+      {/* A new per-table paste describes a different measurement, so the daily
+          series that went with the old one must not carry over. */}
+      <UsagePasteBox
+        parsed={parsed}
+        onParsed={next => { setParsed(next); setDaily(null) }}
+      />
+      {/* Offered only once there is something to improve — an optional second
+          query in front of a first-time user is just another obstacle. */}
+      {parsed && <DailyVolumePanel parsed={daily} onParsed={setDaily} />}
 
       {result
         ? <SavingsReport result={result} />

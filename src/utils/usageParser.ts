@@ -134,6 +134,14 @@ export function parseNumber(raw: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
+/**
+ * Exported as `matchPlan` for the daily-volume parser, which needs exactly the
+ * same tolerance for the portal's "Auxiliary / Lake" rendering.
+ */
+export function matchPlan(raw: string | undefined): TablePlan | null {
+  return normalisePlan(raw)
+}
+
 function normalisePlan(raw: string | undefined): TablePlan | null {
   // Whitespace stripped because the portal renders the plan as "Auxiliary / Lake"
   // with spaces around the slash, while the API value is plain "Auxiliary".
@@ -209,6 +217,9 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
   const seen = new Set<string>()
   let planAssumedRowCount = 0
   let skipped = 0
+  let unreadableBillable = 0
+  let duplicates = 0
+  let impossibleVolume = 0
 
   for (const line of lines.slice(1)) {
     const cells = splitDelimited(line, delimiter)
@@ -227,8 +238,21 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
     // A row with no readable volume at all is a parse failure, not a zero.
     if (billableGb === null && totalGb === null) { skipped++; continue }
 
+    // Falling back to the total is only sound when the paste has NO billable
+    // column. When the column is there but this cell will not read — blank,
+    // "null", whitespace, negative — the billable figure is unknown, and
+    // treating unknown as "all of it" charges the customer for volume that may
+    // not be billable and then recommends a move that saves nothing. Unknown is
+    // not zero either, so the row is dropped and counted rather than guessed.
+    const hasBillableColumn = index.billableMb !== undefined || index.billableGb !== undefined
+    if (hasBillableColumn && billableGb === null) { unreadableBillable++; continue }
+
     const resolvedBillable = billableGb ?? totalGb ?? 0
     const resolvedTotal = totalGb ?? billableGb ?? 0
+
+    // Billable above total is arithmetically impossible and means the columns
+    // are transposed or misaligned. Silently believing it inflates the bill.
+    if (resolvedBillable > resolvedTotal + 1e-9) { impossibleVolume++ }
 
     let plan = index.plan !== undefined ? normalisePlan(cells[index.plan]) : null
     if (plan === null) {
@@ -239,7 +263,7 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
       planAssumedRowCount++
     }
 
-    if (seen.has(tableName + plan)) { skipped++; continue }
+    if (seen.has(tableName + plan)) { duplicates++; continue }
     seen.add(tableName + plan)
 
     rows.push({
@@ -254,14 +278,44 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
   }
 
   if (rows.length === 0) {
+    // Naming the actual cause matters here: "no usable rows" sends someone
+    // hunting for a formatting problem when the real one is a column of blank
+    // billable figures, which is what an empty sumif() produces.
     throw new UsageParseError(
-      'Found the headings but no usable rows.',
-      'Check the results are not empty and that numbers are plain — no currency symbols.',
+      unreadableBillable > 0
+        ? 'Every row had an unreadable billable volume.'
+        : 'Found the headings but no usable rows.',
+      unreadableBillable > 0
+        ? 'The BillableMB column is present but empty. That happens when the query returns no '
+          + 'billable rows, or when a spreadsheet round-trip has blanked the column. Re-run the '
+          + 'query and copy the results directly.'
+        : 'Check the results are not empty and that numbers are plain — no currency symbols.',
     )
   }
 
   if (skipped > 0) {
     warnings.push(`${skipped} row${skipped === 1 ? '' : 's'} could not be read and were ignored.`)
+  }
+  if (unreadableBillable > 0) {
+    warnings.push(
+      `${unreadableBillable} row${unreadableBillable === 1 ? ' had an' : 's had'} unreadable billable `
+      + `volume and ${unreadableBillable === 1 ? 'was' : 'were'} excluded. Your real spend is higher `
+      + 'than shown. Re-copy the results including every column.',
+    )
+  }
+  if (duplicates > 0) {
+    warnings.push(
+      `${duplicates} duplicate table and plan row${duplicates === 1 ? '' : 's'} ignored. If the paste `
+      + 'was doubled this is correct; if your query splits a table by another column, the excluded '
+      + 'volume is missing from these figures.',
+    )
+  }
+  if (impossibleVolume > 0) {
+    warnings.push(
+      `${impossibleVolume} row${impossibleVolume === 1 ? ' reports' : 's report'} more billable than `
+      + 'total volume, which is not possible — check the columns are the right way round. The spend '
+      + 'and savings shown for those rows are higher than they should be.',
+    )
   }
   if (planAssumedRowCount > 0) {
     warnings.push(
