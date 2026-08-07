@@ -61,7 +61,8 @@ Confirm `BILLING_RULES.overageAtTierRate` is still `true`. Common mistake: charg
 - `tier.savingsVsPayg` must equal `1 − tier.effectiveRateUsd / PAYG`
 - Every tier must undercut PAYG
 - Larger commitments must never be worse value than smaller ones
-- No tier may claim a saving above Microsoft's published maximum of 52%
+- Do not judge savings against a remembered maximum — if a claimed saving looks implausible, re-verify the tier daily costs against the Azure Retail Prices API (`serviceName eq 'Sentinel' and armRegionName eq 'uksouth'`); the daily costs are the only asserted inputs, everything else derives
+- Commitment tiers must be sized against Analytics-plan volume only. Basic and Auxiliary/Lake volume is flat-rate (`BASIC_LOGS_RATE_USD_PER_GB`, `AUXILIARY_LOGS_RATE_USD_PER_GB` in `src/data/pricing.ts`) and earns no tier discount; which tables support those plans comes from `src/data/tablePlanSupport.ts` — flag any tier sized against volume that includes them
 
 ### 6. Breakeven points
 
@@ -80,7 +81,7 @@ Retention is a flow-to-stock conversion: ingesting G GB/day and holding D extra 
 
 `freeWindow` must come from `getTierDefinition(tier).freeRetentionDays`, not a hardcoded 90. Flag any site that hardcodes it.
 
-Sanity check the magnitude: interactive retention is roughly 30× the lake storage rate before compression, and roughly 190× after. If extended retention looks cheap relative to lake mirroring, a rate is wrong.
+Sanity check the magnitude by deriving it, not remembering it: per raw GB, extended interactive retention costs `ANALYTICS_RET` against `LAKE_STORE / COMPRESSION` for the lake mirror — compute that ratio from the bound constants. Extended retention should come out dramatically more expensive; if it looks cheap relative to lake mirroring, a rate is wrong.
 
 ### 9. Currency conversion
 

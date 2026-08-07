@@ -27,6 +27,13 @@ describe('table catalogue integrity', () => {
     }
   })
 
+  it('never recommends the Basic plan for a table that cannot use it', () => {
+    const impossible = TABLE_CATALOGUE.filter(
+      e => e.recommendedTier === 'basic' && !e.basicCapable,
+    )
+    expect(impossible.map(e => e.name)).toEqual([])
+  })
+
   it('never recommends the Lake tier for a table that cannot use it', () => {
     // The failure this guards against is advice the customer physically cannot
     // follow. Microsoft publishes "Auxiliary / Lake table support: No" for a
@@ -68,15 +75,19 @@ describe('catalogue agrees with what Microsoft publishes', () => {
 
   it('undocumented tables claim no plan support', () => {
     // Unverified is not the same as supported. A table Microsoft does not
-    // document must not be offered a move we cannot price.
+    // document must not be offered a move we cannot price — on EITHER cheaper
+    // plan. This originally guarded only the Lake side; a review pointed out an
+    // undocumented table could still be authored basicCapable and every test
+    // would pass.
     for (const e of TABLE_CATALOGUE) {
       if (publishedPlanSupport(e.name)) continue
       expect(
-        { table: e.name, lakeCapable: e.lakeCapable, tier: e.recommendedTier },
+        { table: e.name, lakeCapable: e.lakeCapable, basicCapable: e.basicCapable },
       ).toEqual(
-        { table: e.name, lakeCapable: false, tier: e.recommendedTier },
+        { table: e.name, lakeCapable: false, basicCapable: false },
       )
       expect(e.recommendedTier).not.toBe('data-lake')
+      expect(e.recommendedTier).not.toBe('basic')
     }
   })
 

@@ -20,12 +20,14 @@ interface Props {
 
 const REC_PILL_STYLES: Record<TierRecommendation, string> = {
   analytics: 'bg-primary text-white',
+  basic: 'bg-primary/15 text-light',
   'data-lake': 'bg-primary/15 text-light',
   free: 'bg-primary/15 text-primary-text',
 }
 
 const REC_LABELS: Record<TierRecommendation, string> = {
   analytics: 'Analytics',
+  basic: 'Basic',
   'data-lake': 'Data Lake',
   free: 'Free',
 }

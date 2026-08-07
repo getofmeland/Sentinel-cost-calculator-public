@@ -1,7 +1,13 @@
-import { useState } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
 import { PricingProvider, usePricing } from './contexts/PricingContext'
 import { IngestionEstimator } from './components/IngestionEstimator'
-import { AnalyseMode } from './components/AnalyseMode'
+
+// Analyse mode carries the table catalogue plus a 681-table connector index —
+// around a fifth of the bundle that an estimate-only visit never reads. Split
+// it out and load on first entry to the Analyse tab.
+const AnalyseMode = lazy(() =>
+  import('./components/AnalyseMode').then(m => ({ default: m.AnalyseMode })),
+)
 import { RegionSelector } from './components/RegionSelector'
 import { FeatureRequestButton } from './components/FeatureRequestButton'
 import { FeatureRequestModal } from './components/FeatureRequestModal'
@@ -17,6 +23,10 @@ const MODES: Array<{ id: Mode; label: string; hint: string }> = [
 
 function AppShell() {
   const [mode, setMode] = useState<Mode>('estimate')
+  // Latches on first visit to the Analyse tab. Set during render, which is
+  // safe for a ref: the same render that flips the mode reads the new value.
+  const analyseVisited = useRef(false)
+  if (mode === 'analyse') analyseVisited.current = true
   const {
     region, onRegionChange,
     fxRate, onFxRateChange,
@@ -154,7 +164,13 @@ function AppShell() {
             <IngestionEstimator onPresetChange={setActivePresetId} />
           </div>
           <div id="mode-panel-analyse" role="tabpanel" aria-labelledby="mode-tab-analyse" hidden={mode !== 'analyse'}>
-            <AnalyseMode />
+            {/* Deferred until first visited, mounted permanently afterwards so
+                switching modes never discards a pasted analysis. */}
+            {analyseVisited.current && (
+              <Suspense fallback={<p className="text-light/60 text-sm py-8">Loading analyser…</p>}>
+                <AnalyseMode />
+              </Suspense>
+            )}
           </div>
         </div>
       </main>

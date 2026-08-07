@@ -36,6 +36,13 @@ export interface TableMatch {
    * mapping, which are the common security tables that do support it.
    */
   lakeCapable: boolean
+  /**
+   * Whether the table supports the Basic plan — the only cheaper plan available
+   * to a table that cannot use the Lake tier. Defaults FALSE for tables known
+   * only through the source mapping: unverified is not the same as supported,
+   * and a wrong true here becomes an impossible recommendation.
+   */
+  basicCapable: boolean
   /** Security, operational, mixed or platform, when known */
   category: DataCategory | null
   /** Extra warning specific to this table */
@@ -97,6 +104,7 @@ function buildIndex(): Map<string, TableMatch> {
       // Free only if every claimant is free; a mixed table is billable.
       isFree: sourceIds.every(id => freeSourceIds.has(id)),
       lakeCapable: catalogued?.lakeCapable ?? true,
+      basicCapable: catalogued?.basicCapable ?? false,
       category: catalogued?.category ?? null,
       caveat: catalogued?.caveat ?? null,
       description: catalogued?.description ?? null,
@@ -119,6 +127,7 @@ function buildIndex(): Map<string, TableMatch> {
       reason: entry.reason,
       isFree: !entry.billable,
       lakeCapable: entry.lakeCapable,
+      basicCapable: entry.basicCapable,
       category: entry.category,
       caveat: entry.caveat ?? null,
       description: entry.description,

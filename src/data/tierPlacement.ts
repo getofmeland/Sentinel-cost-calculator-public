@@ -1,4 +1,11 @@
-export type TierRecommendation = 'analytics' | 'data-lake' | 'free'
+/**
+ * 'basic' entered the union for the tables that cannot use the Lake tier but do
+ * support the Basic plan — Perf, AzureMetrics, ContainerLogV2, AppTraces. For
+ * those, Basic is the only cheaper plan that exists, at roughly a fifth of the
+ * Analytics rate, and unlike the Lake tier it keeps per-table alerting. Only
+ * Analyse-mode catalogue entries use it; estimator sources do not.
+ */
+export type TierRecommendation = 'analytics' | 'basic' | 'data-lake' | 'free'
 
 export interface TierPlacementDefault {
   sourceId: string

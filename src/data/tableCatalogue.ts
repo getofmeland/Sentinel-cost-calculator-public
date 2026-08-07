@@ -1,4 +1,6 @@
 import type { TierRecommendation } from './tierPlacement'
+// Value import of data, type-only import back the other way — no runtime cycle.
+import { EXTENDED_CATALOGUE } from './tableCatalogueExtended'
 
 /**
  * Table-keyed reference for Analyse mode.
@@ -246,9 +248,9 @@ const OPERATIONAL: CatalogueEntry[] = [
   {
     name: 'Perf', description: 'Windows and Linux performance counters.',
     category: 'operational', billable: true, lakeCapable: false, basicCapable: true,
-    recommendedTier: 'analytics',
-    reason: 'Infrastructure monitoring paying SIEM rates. No detection rule will ever query it.',
-    caveat: 'Cannot move to the Lake tier. Cut it at the source instead — collect fewer counters, or sample less often. It does support the Basic plan, at roughly a fifth of the Analytics rate.',
+    recommendedTier: 'basic',
+    reason: 'Infrastructure monitoring paying SIEM rates. No detection rule will ever query it, and Basic bills it at roughly a fifth of the Analytics rate.',
+    caveat: 'VM Insights reads this table and does not work against the Basic plan — if that blade is in use, the move breaks it. Also worth cutting at source: fewer counters, longer sample intervals.',
   },
   {
     name: 'InsightsMetrics', description: 'VM and container health metrics from Insights.',
@@ -260,16 +262,16 @@ const OPERATIONAL: CatalogueEntry[] = [
   {
     name: 'AzureMetrics', description: 'Azure resource platform metrics routed into logs.',
     category: 'operational', billable: true, lakeCapable: false, basicCapable: true,
-    recommendedTier: 'analytics',
-    reason: 'Belongs in Azure Monitor rather than a Sentinel-enabled workspace.',
-    caveat: 'Cannot move to the Lake tier. Metrics rarely need to be in Logs at all — check whether a diagnostic setting is duplicating what Azure Monitor Metrics already holds for free.',
+    recommendedTier: 'basic',
+    reason: 'Belongs in Azure Monitor rather than a Sentinel-enabled workspace; while it is here, Basic is the only cheaper plan it supports.',
+    caveat: 'Better than any tier change: metrics rarely need to be in Logs at all. Check whether a diagnostic setting is duplicating what Azure Monitor Metrics already holds for free.',
   },
   {
     name: 'ContainerLogV2', description: 'Container stdout and stderr from Container Insights.',
     category: 'operational', billable: true, lakeCapable: false, basicCapable: true,
-    recommendedTier: 'analytics',
-    reason: 'Application output from AKS — routinely the single largest table in a workspace.',
-    caveat: 'Cannot move to the Lake tier, but it does support Basic, which is the single biggest tier saving available to most workspaces given how large this table gets.',
+    recommendedTier: 'basic',
+    reason: 'Application output from AKS — routinely the single largest table in a workspace, and Basic is often the single biggest tier saving available.',
+    caveat: 'Container Insights reads this table and does not work against the Basic plan — if that experience is in use, the move breaks it. Simple per-table alerts keep working; scheduled analytics rules do not.',
   },
   {
     name: 'ContainerLog', description: 'Legacy container log table from Container Insights.',
@@ -309,10 +311,10 @@ const OPERATIONAL: CatalogueEntry[] = [
     name,
     description: 'Application Insights telemetry.',
     category: 'operational', billable: true, lakeCapable: false, basicCapable: basic,
-    recommendedTier: 'analytics',
+    recommendedTier: basic ? 'basic' : 'analytics',
     reason: 'Developer APM data attracting Sentinel charges because App Insights points at this workspace.',
     caveat: basic
-      ? 'Cannot move to the Lake tier, but supports Basic. The better fix is usually a separate Application Insights workspace, so developer telemetry stops attracting Sentinel rates entirely.'
+      ? 'The Application Insights portal experience does not work against the Basic plan — moving this table breaks it. The better fix is usually a separate Application Insights workspace, so developer telemetry stops attracting Sentinel rates entirely.'
       : 'Supports neither the Lake nor the Basic plan. The only fix is pointing Application Insights at a workspace without Sentinel enabled.',
   })),
 ]
@@ -430,6 +432,7 @@ const PLATFORM_AND_FREE: CatalogueEntry[] = [
 
 export const TABLE_CATALOGUE: CatalogueEntry[] = [
   ...AWS, ...GCP, ...THREAT_INTEL, ...DEFENDER_XDR, ...OPERATIONAL, ...PLATFORM_AND_FREE,
+  ...EXTENDED_CATALOGUE,
 ]
 
 const BY_NAME = new Map(TABLE_CATALOGUE.map(e => [e.name.toLowerCase(), e]))

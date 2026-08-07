@@ -147,6 +147,78 @@ describe('tier placement savings', () => {
   })
 })
 
+describe('Basic plan, where it is the only cheaper plan', () => {
+  // Perf, AzureMetrics, ContainerLogV2 and AppTraces cannot use the Lake tier
+  // at all — Microsoft publishes "Auxiliary / Lake support: No" for them. Basic
+  // is the one cheaper plan they support, so it is what the tool must say.
+
+  it('recommends Basic for a lake-incapable operational table', () => {
+    const paste = `TableName\tPlan\tBillableMB\nContainerLogV2\tAnalytics\t${50 * 1000 * 31}`
+    const r = analyse(paste)
+    expect(r.tables[0].status).toBe('move-to-basic')
+    const opp = r.opportunities.find(o => o.kind === 'basic-plan')!
+    const expected =
+      50 * (STATIC_PRICING_BUNDLE.paygRateUsd - STATIC_PRICING_BUNDLE.basicLogsRateUsd) * DAYS_PER_MONTH
+    expect(opp.monthlySavingUsd).toBeCloseTo(expected, 0)
+    expect(opp.tables).toContain('ContainerLogV2')
+  })
+
+  it('never offers Basic to a table that does not support it', () => {
+    // InsightsMetrics supports neither Lake nor Basic — there is no cheaper
+    // plan, and the tool must not invent one.
+    const paste = `TableName\tPlan\tBillableMB\nInsightsMetrics\tAnalytics\t${50 * 1000 * 31}`
+    const r = analyse(paste)
+    expect(r.tables[0].status).toBe('ok')
+    expect(r.opportunities.find(o => o.kind === 'basic-plan')).toBeUndefined()
+    expect(r.opportunities.find(o => o.kind === 'tier-placement')).toBeUndefined()
+  })
+
+  it('does not suggest moving a table already on Basic', () => {
+    const paste = `TableName\tPlan\tBillableMB\nPerf\tBasic\t${50 * 1000 * 31}`
+    const r = analyse(paste)
+    expect(r.opportunities.find(o => o.kind === 'basic-plan')).toBeUndefined()
+  })
+
+  it('removes Basic-bound volume from commitment tier sizing', () => {
+    // 110 GB/day of genuine Analytics data plus 40 GB/day of Perf that should
+    // move to Basic. The tier must be sized on 110 — sizing on 150 would
+    // promise a discount on gigabytes that have already left the pool.
+    const paste = [
+      'TableName\tPlan\tBillableMB',
+      `SigninLogs\tAnalytics\t${110 * 1000 * 31}`,
+      `Perf\tAnalytics\t${40 * 1000 * 31}`,
+    ].join('\n')
+    const r = analyse(paste)
+    expect(r.analyticsGbPerDayAfterMoves).toBeCloseTo(110, 1)
+    const tierOpp = r.opportunities.find(o => o.kind === 'commitment-tier')
+    expect(tierOpp?.detail).toMatch(/110\.0 GB\/day/)
+  })
+
+  it('states the Basic plan restrictions rather than only the rate', () => {
+    // The difference between the Basic and Lake plans is what keeps working:
+    // Basic keeps simple per-table alerts; scheduled analytics rules stop.
+    // Advice that omits this reads as a free lunch.
+    const paste = `TableName\tPlan\tBillableMB\nAppTraces\tAnalytics\t${20 * 1000 * 31}`
+    const opp = analyse(paste).opportunities.find(o => o.kind === 'basic-plan')!
+    expect(opp.detail).toMatch(/scheduled analytics rules/i)
+    expect(opp.detail).toMatch(/one per table per week/i)
+    expect(opp.detail).toMatch(/30 days/i)
+  })
+
+  it('keeps the headline honest when Basic moves are in the mix', () => {
+    const paste = [
+      'TableName\tPlan\tBillableMB',
+      `SigninLogs\tAnalytics\t${120 * 1000 * 31}`,
+      `ContainerLogV2\tAnalytics\t${80 * 1000 * 31}`,
+      `CommonSecurityLog\tAnalytics\t${60 * 1000 * 31}`,
+    ].join('\n')
+    const r = analyse(paste)
+    // A saving larger than the bill is arithmetically impossible advice.
+    expect(r.totalAddressableSavingUsd).toBeLessThan(r.currentMonthlyUsd)
+    expect(r.totalAddressableSavingUsd).toBeGreaterThan(0)
+  })
+})
+
 describe('misconfiguration detection', () => {
   it('flags a free table that is being billed, and recovers the whole cost', () => {
     const paste = `TableName\tPlan\tBillableMB\nOfficeActivity\tAnalytics\t${6 * 1000 * 31}`

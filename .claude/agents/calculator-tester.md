@@ -19,8 +19,9 @@ Your responsibilities:
 2. **Test edge cases**
    - 0 GB ingestion (should show £0 / $0, not NaN or errors)
    - Fractional GB values (0.5 GB/day)
-   - Exactly at tier boundaries (100.0 GB/day)
-   - Just below tier boundaries (99.9 GB/day)
+   - Exactly at each tier boundary — take the boundaries from the `gbPerDay`
+     values in `COMMITMENT_TIERS`; do not assume which tiers exist
+   - Just below each tier boundary (boundary − 0.1 GB/day)
    - Maximum realistic values (10,000+ GB/day)
    - Negative numbers (should be rejected)
 
@@ -29,14 +30,19 @@ Your responsibilities:
    - Verify the recommended tier logic picks the cheapest option
 
 4. **Check currency conversion**
-   - USD to GBP conversion uses configurable exchange rate
-   - Rounding is consistent (nearest whole pound/dollar)
-   - Both currencies display correctly
+   - USD to GBP and EUR conversion uses configurable exchange rates — the
+     fallback values live in `src/data/pricing.ts`; never assert an FX rate
+     from memory
+   - Rounding is consistent (nearest whole pound/dollar/euro)
+   - All three currencies display correctly
 
 5. **Defender XDR overlap logic**
-   - E3 customers: limited Defender coverage, most logs need Sentinel
-   - E5 customers: significant overlap, 30-60% potential savings
-   - Savings calculation correctly subtracts Defender-covered sources
+   - Read the grant rates and eligible-source sets from
+     `src/data/licenceBenefits.ts` — do not assert a savings percentage from
+     memory; derive any expected saving from those grants and the rates in
+     `src/data/pricing.ts`
+   - The grant must be capped at actual eligible ingestion and applied exactly
+     once — never both removed from the volume and credited against the total
 
 6. **Write unit tests**
    - Use Vitest

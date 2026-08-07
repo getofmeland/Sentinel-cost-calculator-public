@@ -147,8 +147,10 @@ const MAPPINGS: SourceTableMapping[] = [
     connectorName: 'Microsoft Defender for Cloud',
     tables: [
       { name: 'SecurityAlert', description: 'Security alerts from Defender for Cloud and other sources', url: ama('securityalert') },
+      // SecurityTask was removed here: it is a retired Security Center-era data
+      // type with no page in the current table reference. Recommendations now
+      // reach a workspace via continuous export into SecurityRecommendation.
       { name: 'SecurityRecommendation', description: 'Hardening recommendations for Azure resources', url: ama('securityrecommendation') },
-      { name: 'SecurityTask', description: 'Tasks generated from Defender for Cloud recommendations', url: ama('securitytask') },
     ],
     kqlExample: `SecurityAlert
 | where TimeGenerated > ago(24h)
@@ -211,14 +213,16 @@ const MAPPINGS: SourceTableMapping[] = [
     connectorName: 'Azure Key Vault',
     tables: [
       { name: 'AzureDiagnostics', description: 'Key Vault access events in legacy diagnostics mode', url: ama('azurediagnostics') },
-      { name: 'KeyVaultData', description: 'Key Vault operations in resource-specific diagnostics mode', url: ama('keyvaultdata') },
+      // Previously listed as "KeyVaultData", which is not a real table — the
+      // resource-specific diagnostics table for Key Vault is AZKVAuditLogs.
+      { name: 'AZKVAuditLogs', description: 'Key Vault operations in resource-specific diagnostics mode', url: ama('azkvauditlogs') },
     ],
     kqlExample: `AzureDiagnostics
 | where ResourceProvider == "MICROSOFT.KEYVAULT"
 | where TimeGenerated > ago(24h)
 | summarize count() by OperationName
 | top 10 by count_`,
-    note: 'Use resource-specific diagnostics mode (KeyVaultData) where possible — it avoids the noisy AzureDiagnostics catch-all table.',
+    note: 'Use resource-specific diagnostics mode (AZKVAuditLogs) where possible — it avoids the noisy AzureDiagnostics catch-all table.',
     docsUrl: 'https://learn.microsoft.com/en-us/azure/sentinel/data-connectors/azure-key-vault',
   },
 
@@ -231,7 +235,9 @@ const MAPPINGS: SourceTableMapping[] = [
       { name: 'AZFWApplicationRule', description: 'Azure Firewall application (FQDN) rule decisions', url: ama('azfwapplicationrule') },
       { name: 'AZFWNetworkRule', description: 'Azure Firewall network rule allow/deny decisions', url: ama('azfwnetworkrule') },
       { name: 'AZFWThreatIntel', description: 'Azure Firewall threat intelligence alert hits', url: ama('azfwthreatintel') },
-      { name: 'AZFWDnsProxy', description: 'DNS queries proxied through Azure Firewall', url: ama('azfwdnsproxy') },
+      // Previously listed as "AZFWDnsProxy", a legacy diagnostic category that
+      // writes to AzureDiagnostics. The resource-specific table is AZFWDnsQuery.
+      { name: 'AZFWDnsQuery', description: 'DNS queries proxied through Azure Firewall', url: ama('azfwdnsquery') },
     ],
     kqlExample: `AZFWNetworkRule
 | where TimeGenerated > ago(1h)

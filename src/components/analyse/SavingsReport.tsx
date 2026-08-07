@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { type AnalysisResult, type Opportunity } from '../../utils/analysis'
+import { type AnalysedTable, type AnalysisResult, type Opportunity } from '../../utils/analysis'
 import { fmtCurrency } from '../../utils/currency'
 import { usePricing } from '../../contexts/PricingContext'
 import { TableInfoPopover } from '../TableInfoPopover'
@@ -11,14 +11,18 @@ interface Props {
 const KIND_LABEL: Record<Opportunity['kind'], string> = {
   'billed-but-free': 'Misconfiguration',
   'tier-placement': 'Tier placement',
+  'basic-plan': 'Basic plan',
   'commitment-tier': 'Commitment tier',
   'operational-data': 'Workspace design',
   'needs-input': 'Needs your input',
 }
 
-const STATUS_LABEL: Record<string, string> = {
+// Keyed on the union so a new status fails the build here instead of silently
+// rendering undefined.
+const STATUS_LABEL: Record<AnalysedTable['status'], string> = {
   'ok': '',
   'move-to-lake': 'Move to Data Lake',
+  'move-to-basic': 'Move to Basic',
   'should-be-free': 'Should be free',
   'needs-input': 'Ambiguous',
   'unclassified': 'Unrecognised',
@@ -278,7 +282,7 @@ export function SavingsReport({ result }: Props) {
                       <span
                         className={
                           t.status === 'should-be-free' ? 'text-accent-text font-medium'
-                            : t.status === 'move-to-lake' ? 'text-primary-text font-medium'
+                            : t.status === 'move-to-lake' || t.status === 'move-to-basic' ? 'text-primary-text font-medium'
                               : 'text-light/70'
                         }
                       >
@@ -306,8 +310,9 @@ export function SavingsReport({ result }: Props) {
         <p className="px-6 py-3 border-t border-white/10 text-[11px] text-light/60 leading-relaxed">
           Costs use current list pricing for your selected region, applied to your measured volume.
           Commitment tiers cover Analytics-plan volume only — Basic and Auxiliary are billed at flat
-          rates. Data lake usage and per-table retention are not measurable by query and are not
-          included here.
+          rates. Savings shown for plan moves are on ingestion only: Basic and Lake queries are
+          billed per GB scanned, and that usage — like per-table retention — is not measurable from
+          this query, so it is not included here.
         </p>
       </div>
     </div>

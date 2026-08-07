@@ -21,6 +21,7 @@ This file used to carry its own copy of the whole price book. The copy drifted: 
 | Tier placement recommendations | `src/data/tierPlacement.ts` |
 | Compliance retention presets | `src/data/compliancePresets.ts` |
 | Source → Sentinel table mapping | `src/data/sentinelTables.ts` |
+| Which tables support the Basic and Auxiliary/Lake plans | `src/data/tablePlanSupport.ts` — extracted verbatim from Microsoft's per-table reference pages; the verified oracle for plan eligibility |
 
 Commitment tiers derive their effective rate and saving from the published daily cost. Never hardcode those two — read `effectiveRateUsd` and `savingsVsPayg`, or recompute them as `dailyCostUsd / gbPerDay` and `1 − effectiveRateUsd / PAYG`.
 
@@ -43,10 +44,10 @@ Analytics extended retention is billed under `serviceName eq 'Log Analytics'` (m
 
 ## Billing rules that are not in the rate table
 
-- Commitment tiers apply to the Analytics tier only, never to Data Lake.
-- Overage above a commitment is billed at that tier's own discounted rate, **not** at PAYG. This is the most commonly mis-modelled rule.
+- Commitment tiers apply only to Analytics-plan volume — never to Data Lake, Basic or Auxiliary ingestion, which are flat-rate with no discount. Size a tier against Analytics-plan volume alone; whether a given table can even move to Basic or Auxiliary/Lake is answered by `src/data/tablePlanSupport.ts`, not by assumption.
+- Overage above a commitment is billed at that tier's own discounted rate, **not** at PAYG (`BILLING_RULES.overageAtTierRate`). This is the most commonly mis-modelled rule.
 - Committing above actual usage is not prorated — you pay the full commitment.
-- Lowering a tier is only permitted every 31 days; raising it is immediate.
+- Lowering a tier is only permitted after the wait in `BILLING_RULES.downgradeWaitDays`; raising it is immediate.
 - Tiers are per-workspace unless on a dedicated cluster.
 - Monthly cost = daily cost × `DAYS_PER_MONTH`.
 - Data Lake retention bills on the *compressed* volume; queries bill on the *uncompressed* volume scanned.
@@ -79,6 +80,8 @@ Read the grant rates and the eligible-source sets from `src/data/licenceBenefits
 The shape of the advice: real-time detection sources (identity, EDR, email) belong on Analytics; high-volume investigative sources (firewall, flow logs, DNS, general syslog) belong on Data Lake, with Summary Rules aggregating what detection genuinely needs back into Analytics.
 
 Placement is a recommendation with a user override — some customers do run detection against DNS or firewall data.
+
+A recommendation is only valid if the table can actually take the plan. `src/data/tablePlanSupport.ts` records, verbatim from Microsoft's reference pages, which tables support Basic and Auxiliary/Lake — check it before proposing any plan move, and treat a table absent from it as not-capable rather than guessing.
 
 ## Compliance retention
 

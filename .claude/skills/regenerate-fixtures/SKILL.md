@@ -52,7 +52,7 @@ Watch for the two traps that have caused real bugs:
 - **`contains()` is case-sensitive.** Meters are `Data lake ingestion`, `Data lake query`, `Data lake storage`.
 - **Lake ingestion is two meters**: `Data lake ingestion Data Processed` plus `Data processing Data Processed`. The second does not contain "Data lake", so no lake-named filter returns it.
 
-Also check for meters the calculator does not model at all — Basic Logs, Auxiliary Logs, Graph, and Advanced Data Insights all exist and are currently out of scope. If one appears that materially affects a customer's bill, raise it rather than silently ignoring it.
+Also check for meters the parser does not model. Compare the recorded meter names against the meter map in `src/services/azurePricing.ts` — that map, not this file, is the authority on what is currently modelled (Basic Logs, Auxiliary Logs, Graph and Advanced Data Insights are all in it today). If a meter appears that the map does not cover and it materially affects a customer's bill, raise it rather than silently ignoring it.
 
 ### 4. Update dependent constants
 

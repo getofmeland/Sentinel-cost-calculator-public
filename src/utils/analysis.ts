@@ -26,6 +26,7 @@ import type { ParsedUsage, UsageRow } from './usageParser'
 export type OpportunityKind =
   | 'commitment-tier'
   | 'tier-placement'
+  | 'basic-plan'
   | 'billed-but-free'
   | 'operational-data'
   | 'needs-input'
@@ -55,9 +56,9 @@ export interface AnalysedTable extends UsageRow {
   attribution: ConnectorAttribution | null
   /** Current monthly cost at the rate for its plan */
   monthlyCostUsd: number
-  /** Set when moving this table to Data Lake would save money */
+  /** Set when moving this table to a cheaper plan would save money */
   potentialSavingUsd: number
-  status: 'ok' | 'move-to-lake' | 'should-be-free' | 'needs-input' | 'unclassified'
+  status: 'ok' | 'move-to-lake' | 'move-to-basic' | 'should-be-free' | 'needs-input' | 'unclassified'
 }
 
 export interface AnalysisResult {
@@ -125,6 +126,19 @@ export function analyseUsage(
       status = 'move-to-lake'
       potentialSavingUsd =
         row.billableGbPerDay * (pricing.paygRateUsd - pricing.dataLakeRateUsd) * DAYS_PER_MONTH
+    } else if (
+      match.recommendation === 'basic'
+      && row.plan === 'Analytics'
+      && row.billableGbPerDay > 0
+      // Basic support is a published table attribute, verified in
+      // tablePlanSupport.ts — same rule as the Lake guard above. A catalogue
+      // entry can only reach 'basic' with basicCapable true, but the engine
+      // must not trust the catalogue to have got that right.
+      && match.basicCapable
+    ) {
+      status = 'move-to-basic'
+      potentialSavingUsd =
+        row.billableGbPerDay * (pricing.paygRateUsd - pricing.basicLogsRateUsd) * DAYS_PER_MONTH
     }
 
     return {
@@ -184,17 +198,44 @@ export function analyseUsage(
     })
   }
 
-  // ── 3. Commitment tier, sized on what Analytics volume actually REMAINS ───
+  // ── 3. Basic plan, for the tables where it is the only cheaper plan ───────
+  //
+  // These cannot use the Lake tier at all — first-party operational tables like
+  // Perf and ContainerLogV2 publish "Auxiliary / Lake support: No". Basic bills
+  // at roughly a fifth of the Analytics rate and, unlike the Lake plan, keeps
+  // simple per-table alerts working.
+  const basicMovable = tables.filter(t => t.status === 'move-to-basic')
+  if (basicMovable.length > 0) {
+    opportunities.push({
+      kind: 'basic-plan',
+      title: `Move ${basicMovable.length} table${basicMovable.length === 1 ? '' : 's'} to the Basic plan`,
+      detail:
+        `The Lake tier is not available for these tables, so Basic is the only cheaper plan they `
+        + `support — at roughly a fifth of the Analytics rate. Basic keeps full KQL on the table and `
+        + `simple per-table alerts, but check what depends on these tables first: the curated `
+        + `Insights experiences they power — VM Insights, Container Insights, Application Insights — `
+        + `do not work against the Basic plan, and resource-scoped queries stop too. Queries are `
+        + `billed per GB scanned rather than included, scheduled analytics rules cannot query the `
+        + `table, interactive retention is 30 days, and plan changes are limited to one per table `
+        + `per week. The saving shown is on ingestion only, before any query charges.`,
+      monthlySavingUsd: basicMovable.reduce((a, t) => a + t.potentialSavingUsd, 0),
+      tables: basicMovable.map(t => t.tableName),
+    })
+  }
+
+  // ── 4. Commitment tier, sized on what Analytics volume actually REMAINS ───
   //
   // Sizing against today's volume would recommend a tier the customer no longer
   // needs once the moves above are made, and promise a saving on gigabytes that
-  // have already been counted as saved.
+  // have already been counted as saved. Basic moves leave the Analytics pool
+  // just as Lake moves do — commitment tiers cover neither plan.
   const analyticsToday = usage.analyticsBillableGbPerDay
   const analyticsRemaining = Math.max(
     0,
     analyticsToday
       - wronglyBilled.filter(t => t.plan === 'Analytics').reduce((a, t) => a + t.billableGbPerDay, 0)
-      - movable.reduce((a, t) => a + t.billableGbPerDay, 0),
+      - movable.reduce((a, t) => a + t.billableGbPerDay, 0)
+      - basicMovable.reduce((a, t) => a + t.billableGbPerDay, 0),
   )
 
   const options = computeTierOptions(analyticsRemaining, pricing)
@@ -221,7 +262,7 @@ export function analyseUsage(
     }
   }
 
-  // ── 4. Operational data paying Sentinel rates ─────────────────────────────
+  // ── 5. Operational data paying Sentinel rates ─────────────────────────────
   //
   // Enabling Sentinel on a workspace means everything in it attracts Sentinel
   // charges, including data with no security purpose. Microsoft's own guidance
@@ -248,7 +289,7 @@ export function analyseUsage(
     })
   }
 
-  // ── 5. Tables we will not guess about ─────────────────────────────────────
+  // ── 6. Tables we will not guess about ─────────────────────────────────────
   const needsInput = tables.filter(t => t.status === 'needs-input')
   if (needsInput.length > 0) {
     opportunities.push({

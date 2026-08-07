@@ -289,7 +289,9 @@ export function IngestionEstimator({ onPresetChange }: Props) {
       } else {
         next.add(id)
         const defaultTier = getDefaultTier(id)
-        if (defaultTier !== 'free') {
+        // The estimator models two paid tiers; 'basic' exists only for
+        // Analyse-mode catalogue entries and no estimator source recommends it.
+        if (defaultTier === 'analytics' || defaultTier === 'data-lake') {
           setLogTiers(p => ({ ...p, [id]: defaultTier }))
         }
         if (activePresetId !== 'custom') {

@@ -85,6 +85,7 @@ const SUPPORT: Record<string, readonly [boolean, boolean]> = {
   'azfwnatrule': [true, true],
   'azfwnetworkrule': [true, true],
   'azfwthreatintel': [true, true],
+  'azkvauditlogs': [true, true],
   'azureactivity': [false, false],
   'azuremetrics': [true, false],
   'behaviorentities': [true, true],
