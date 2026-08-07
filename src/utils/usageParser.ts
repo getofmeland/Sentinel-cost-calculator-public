@@ -122,15 +122,37 @@ export function sniffDelimiter(lines: string[]): string {
 }
 
 /**
- * Numbers may arrive with thousands separators, currency-style grouping, or
- * exponential notation depending on how the grid formatted them. A comma
- * decimal separator inside a comma-delimited file is unresolvable, so a value
- * that does not parse cleanly is rejected rather than guessed at.
+ * The complete grammar of a number this parser will accept. Anything else is
+ * rejected rather than guessed at, because every guess available here is wrong
+ * by a factor of ten or more.
+ *
+ * ACCEPTED
+ *   1234   1234.5   0            plain
+ *   1,234   1,234.5   1,234,567  comma as a thousands separator, groups of three
+ *   1.23E+05   4.2e-3            Azure emits exponential notation for large values
+ *   whitespace anywhere           grids use spaces and non-breaking spaces to group
+ *
+ * REJECTED, and why it matters
+ *   1234,5    a decimal comma. Whether that means 1234.5 or 12345 depends on the
+ *             reader's locale, and this tool ships a EUR option, so European
+ *             pastes are squarely in scope. The old code stripped every comma
+ *             unconditionally and returned 12345 \u2014 a tenfold overstatement of a
+ *             cost, silently.
+ *   1.234,5   European grouping, same reasoning, up to a thousandfold.
+ *   0x10      Number('0x10') is 16. JavaScript numeric literals are not volumes
+ *             anyone typed, and accepting them means accepting 0b, 0o and
+ *             Infinity too.
+ *
+ * The previous implementation's docstring already claimed values that "do not
+ * parse cleanly" were rejected. They were not; it deferred to Number(), which
+ * is far more permissive than the prose promised.
  */
+const STRICT_NUMBER = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?$/
+
 export function parseNumber(raw: string): number | null {
-  const cleaned = raw.trim().replace(/[\s\u00A0]/g, '').replace(/,/g, '')
-  if (cleaned === '' || cleaned === '-') return null
-  const n = Number(cleaned)
+  const cleaned = raw.trim().replace(/[\s\u00A0]/g, '')
+  if (!STRICT_NUMBER.test(cleaned)) return null
+  const n = Number(cleaned.replace(/,/g, ''))
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
@@ -161,6 +183,14 @@ const MAX_ROWS = 5000
 export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAYS): ParsedUsage {
   if (!input || !input.trim()) {
     throw new UsageParseError('Nothing to read.', 'Paste the results of the query above.')
+  }
+  // Every per-day figure divides by this. Zero yields Infinity, which then
+  // propagates through every cost in the report as a plausible-looking number.
+  if (!Number.isFinite(lookbackDays) || lookbackDays <= 0) {
+    throw new UsageParseError(
+      'The lookback period must be a positive number of days.',
+      `The query above measures ${USAGE_LOOKBACK_DAYS} complete days.`,
+    )
   }
 
   // Strip a UTF-8 BOM (\uFEFF), which CSV exports commonly carry, and normalise
@@ -212,10 +242,33 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
     )
   }
 
+  const hasBillableColumn = index.billableMb !== undefined || index.billableGb !== undefined
+
+  // The width a data row is EXPECTED to have, taken as the most common width
+  // across the data rows rather than from the header.
+  //
+  // Comparing against the header instead looks obvious and is wrong: a header
+  // can legitimately be narrower than its data. An Excel round-trip that adds a
+  // column without a heading gives every row one extra field, and judging by the
+  // header then condemns the entire paste as malformed — which is a far worse
+  // failure than the shifted-column bug this check exists to catch. Judging by
+  // the modal width instead isolates the rows that genuinely disagree with their
+  // neighbours, which is exactly the unquoted-delimiter case.
+  //
+  // Leading columns still align when the header is short, so the indexed
+  // columns are read correctly; only trailing unnamed fields are ignored.
+  const dataWidths = lines.slice(1).map(l => splitDelimited(l, delimiter).length)
+  const widthCounts = new Map<number, number>()
+  for (const w of dataWidths) widthCounts.set(w, (widthCounts.get(w) ?? 0) + 1)
+  const modalWidth = [...widthCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? firstCells.length
+
   const warnings: string[] = []
   const rows: UsageRow[] = []
   const seen = new Set<string>()
   let planAssumedRowCount = 0
+  let planUnrecognised = 0
+  let malformed = 0
   let skipped = 0
   let unreadableBillable = 0
   let duplicates = 0
@@ -223,6 +276,16 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
 
   for (const line of lines.slice(1)) {
     const cells = splitDelimited(line, delimiter)
+
+    // A row wider than its neighbours has an unquoted delimiter inside a value —
+    // a thousands separator in a CSV, or a comma in a table name like "Palo
+    // Alto, Fortinet". Every column after it is then read from the wrong place.
+    // The delimiter is sniffed from the first five lines only, so a row further
+    // down can do this without the sniff noticing, and the result was billable
+    // volume understated fivefold with no warning at all. Short rows fall
+    // through to the missing-name and missing-volume checks below.
+    if (cells.length > modalWidth) { malformed++; continue }
+
     const tableName = cells[index.tableName]?.trim()
     if (!tableName) { skipped++; continue }
 
@@ -244,7 +307,6 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
     // treating unknown as "all of it" charges the customer for volume that may
     // not be billable and then recommends a move that saves nothing. Unknown is
     // not zero either, so the row is dropped and counted rather than guessed.
-    const hasBillableColumn = index.billableMb !== undefined || index.billableGb !== undefined
     if (hasBillableColumn && billableGb === null) { unreadableBillable++; continue }
 
     const resolvedBillable = billableGb ?? totalGb ?? 0
@@ -254,13 +316,20 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
     // are transposed or misaligned. Silently believing it inflates the bill.
     if (resolvedBillable > resolvedTotal + 1e-9) { impossibleVolume++ }
 
-    let plan = index.plan !== undefined ? normalisePlan(cells[index.plan]) : null
-    if (plan === null) {
-      // Pre-May-2026 rows have no Plan, and a user may have dropped the column.
-      // Analytics is the safe assumption: it is the only plan commitment tiers
-      // apply to, so assuming it cannot understate the tier recommendation.
+    // Two different situations, previously counted as one and reported with a
+    // message that named the wrong cause. A missing column is expected on
+    // pre-May-2026 workspaces; an unrecognised VALUE means the column is there
+    // and we could not read it, which is a different problem with a different
+    // fix. Both default to Analytics — the only plan commitment tiers apply to,
+    // so the assumption cannot understate a tier — but they are now told apart.
+    let plan: TablePlan
+    if (index.plan === undefined) {
       plan = 'Analytics'
       planAssumedRowCount++
+    } else {
+      const matched = normalisePlan(cells[index.plan])
+      plan = matched ?? 'Analytics'
+      if (matched === null) planUnrecognised++
     }
 
     if (seen.has(tableName + plan)) { duplicates++; continue }
@@ -321,6 +390,35 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
     warnings.push(
       `${planAssumedRowCount} row${planAssumedRowCount === 1 ? '' : 's'} had no Plan column and were `
       + 'treated as Analytics. Include Plan in the query for an accurate commitment tier.',
+    )
+  }
+  if (planUnrecognised > 0) {
+    warnings.push(
+      `${planUnrecognised} row${planUnrecognised === 1 ? '' : 's'} had a Plan value we do not `
+      + `recognise and ${planUnrecognised === 1 ? 'was' : 'were'} counted as Analytics. Basic and `
+      + 'Auxiliary volume counted as Analytics is priced too high and inflates the commitment tier, '
+      + 'which only covers Analytics volume.',
+    )
+  }
+  if (malformed > 0) {
+    warnings.push(
+      `${malformed} row${malformed === 1 ? '' : 's'} had more columns than the heading and `
+      + `${malformed === 1 ? 'was' : 'were'} excluded — usually an unquoted comma inside a number or `
+      + 'a table name. Your real spend may be higher than shown. Exporting to CSV from the portal '
+      + 'quotes those values properly.',
+    )
+  }
+  if (modalWidth > firstCells.length) {
+    warnings.push(
+      `Your rows carry ${modalWidth - firstCells.length} more column${modalWidth - firstCells.length === 1 ? '' : 's'} `
+      + 'than the heading row names. The named columns were read normally and the extra ones ignored, '
+      + 'but check the heading row copied across in full.',
+    )
+  }
+  if (!hasBillableColumn) {
+    warnings.push(
+      'No billable volume column was found, so every row is counted as fully billable. Free tables '
+      + 'will look like spend. Include BillableMB in the query for accurate figures.',
     )
   }
 

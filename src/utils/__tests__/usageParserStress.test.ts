@@ -7,19 +7,25 @@
  * export can genuinely take: portal quirks, locale formatting, columns the user
  * moved or removed, and outright hostile input.
  *
- * Two kinds of test live here and the distinction matters:
+ * These began as fourteen `it.fails` cases documenting live defects. All are now
+ * fixed and every test asserts real behaviour; the ones named "FIXED" keep the
+ * original input and a note on the wrong number it used to produce, so the
+ * regression cover is legible as history rather than just as assertions.
  *
- *   `it(...)`       — current behaviour is CORRECT. Locked in as regression cover.
- *   `it.fails(...)` — current behaviour is a DEFECT. The assertion describes what
- *                     the parser SHOULD do, so the test fails today and will start
- *                     passing (and flag itself as an unexpected pass) the moment
- *                     the defect is fixed. Each carries a comment naming the
- *                     defect and the wrong number it produces.
+ * Two root causes produced every serious finding:
  *
- * The severe defects all share one shape: a value the parser cannot read is
- * treated as ABSENT rather than as an ERROR, so `billableGb ?? totalGb` quietly
- * substitutes total volume for billable volume. That over-states cost, which is
- * the direction CLAUDE.md says never to err in.
+ *   1. A value the parser could not read was treated as ABSENT rather than as an
+ *      ERROR, so `billableGb ?? totalGb` quietly substituted total volume for
+ *      billable volume. An empty BillableMB cell — which `sumif()` produces for
+ *      any table with no billable rows, so every workspace has them — was billed
+ *      at full volume and then offered back as a saving.
+ *   2. No row was ever checked against the header's column count, so an unquoted
+ *      comma inside a number or a table name shifted every later cell one place
+ *      left, silently, whenever it fell outside the five-line sniff window.
+ *
+ * Both directions of error are now named in the warning text, because "your real
+ * spend is higher than shown" and "higher than it should be" send a reader to
+ * very different places.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -119,7 +125,7 @@ describe('portal quirks: delimiters, line endings, BOM, whitespace', () => {
    * Correct behaviour: reject any row whose field count differs from the header
    * (or re-sniff across the whole paste). Throwing here is fine; guessing is not.
    */
-  it.fails('DEFECT: unquoted thousands separator past the sniff window shifts columns silently', () => {
+  it('FIXED: a row with more fields than the header is excluded, not read from the wrong columns', () => {
     const r = parseUsagePaste([
       'TableName,Plan,TotalMB,BillableMB',
       'A,Analytics,1000,1000',
@@ -128,10 +134,12 @@ describe('portal quirks: delimiters, line endings, BOM, whitespace', () => {
       'D,Analytics,1000,1000',
       'SecurityEvent,Analytics,1,234.5,1,234.5',
     ].join('\n'), 31)
-    const se = row(r, 'SecurityEvent')
-    expect(se.billableGb).toBeCloseTo(1.2345, 6)
-    expect(se.totalGb).toBeCloseTo(1.2345, 6)
-    expect(r.warnings).toHaveLength(0)
+    // Recovery is impossible in principle: "1,234.5" in a comma-delimited row
+    // is genuinely indistinguishable from two fields. Rejecting is the only
+    // honest option, and the warning says which way the error runs.
+    expect(r.rows.map(x => x.tableName)).not.toContain('SecurityEvent')
+    expect(r.warnings.some(w => /more columns than the heading/i.test(w))).toBe(true)
+    expect(r.warnings.some(w => /real spend may be higher/i.test(w))).toBe(true)
   })
 
   /**
@@ -148,15 +156,19 @@ describe('portal quirks: delimiters, line endings, BOM, whitespace', () => {
    * A truncated table name also silently defeats catalogue matching downstream,
    * so the table lands in "unclassified" with no explanation.
    */
-  it.fails('DEFECT: unquoted comma in a table name past the sniff window truncates the name', () => {
+  it('FIXED: an unquoted comma in a table name excludes the row rather than truncating it', () => {
     const r = parseUsagePaste([
       'TableName,Plan,TotalMB,BillableMB',
       'A,Analytics,100,100', 'B,Analytics,100,100',
       'C,Analytics,100,100', 'D,Analytics,100,100',
       'Palo Alto, Fortinet,Analytics,900,900',
     ].join('\n'), 31)
-    expect(r.rows.map(x => x.tableName)).toContain('Palo Alto, Fortinet')
+    // Previously this landed as 'Palo Alto' with a warning falsely blaming a
+    // missing Plan column, and the truncated name then silently failed to match
+    // the catalogue downstream.
+    expect(r.rows.map(x => x.tableName)).not.toContain('Palo Alto')
     expect(r.planAssumedRowCount).toBe(0)
+    expect(r.warnings.some(w => /more columns than the heading/i.test(w))).toBe(true)
   })
 
   it('sniffs the delimiter rather than assuming, and prefers tab on a tie', () => {
@@ -292,11 +304,13 @@ describe('numeric edge cases', () => {
    * '1234,5'   → 12345    (10x over)
    * '1.234,5'  → 1.2345   (1000x under)
    */
-  it.fails('DEFECT: a decimal comma is read as a thousands separator instead of rejected', () => {
+  it('FIXED: a decimal comma is rejected rather than read as a thousands separator', () => {
+    // Was 12345 — a tenfold overstatement of a cost, silently.
     expect(parseNumber('1234,5')).toBeNull()
   })
 
-  it.fails('DEFECT: European 1.234,5 grouping parses as 1.2345 instead of being rejected', () => {
+  it('FIXED: European 1.234,5 grouping is rejected rather than read as 1.2345', () => {
+    // Was 1.2345 — a thousandfold understatement.
     expect(parseNumber('1.234,5')).toBeNull()
   })
 
@@ -305,8 +319,15 @@ describe('numeric edge cases', () => {
    * Number() accepts JavaScript numeric literals, so hex/octal/binary text is
    * accepted as a volume. '0x10' → 16 rather than being rejected as non-numeric.
    */
-  it.fails('DEFECT: hex literals are accepted as volumes', () => {
+  it('FIXED: JavaScript numeric literals are not volumes', () => {
+    // Number('0x10') is 16. Accepting it means accepting 0b, 0o and Infinity too.
     expect(parseNumber('0x10')).toBeNull()
+    expect(parseNumber('0b11')).toBeNull()
+    expect(parseNumber('Infinity')).toBeNull()
+    // The forms that must still work.
+    expect(parseNumber('1,234.5')).toBeCloseTo(1234.5, 6)
+    expect(parseNumber('1.23E+05')).toBeCloseTo(123000, 6)
+    expect(parseNumber('0')).toBe(0)
   })
 
   /**
@@ -323,13 +344,14 @@ describe('numeric edge cases', () => {
     expect(r.warnings.some(w => /more billable than total/i.test(w))).toBe(true)
   })
 
-  it('divides by the lookback window, and (documented hazard) by zero if asked to', () => {
+  it('divides by the lookback window, and refuses a zero window', () => {
     expect(parseUsagePaste('TableName\tBillableMB\nX\t31000', 31).rows[0].billableGbPerDay)
       .toBeCloseTo(1, 6)
     // Not reachable from the UI, which always takes the 31-day default, but the
-    // parameter is exported: a zero lookback yields Infinity rather than an error.
-    expect(parseUsagePaste('TableName\tBillableMB\nX\t31000', 0).totalBillableGbPerDay)
-      .toBe(Infinity)
+    // parameter is exported. A zero lookback used to yield Infinity, which then
+    // propagates through every cost in the report as a plausible-looking figure.
+    expect(() => parseUsagePaste('TableName\tBillableMB\nX\t31000', 0))
+      .toThrow(/positive number of days/i)
   })
 })
 
@@ -419,10 +441,13 @@ describe('column variance', () => {
    * Truth:  the same fallback is defensible, but it must be declared, exactly as
    *         the Plan assumption is.
    */
-  it.fails('DEFECT: a missing BillableMB column bills the whole total with no warning', () => {
+  it('FIXED: a missing BillableMB column still bills the total, but says so', () => {
+    // The fallback itself is defensible — without the column there is nothing
+    // better to do. The silence was not: free tables looked like spend.
     const r = parseUsagePaste('TableName\tPlan\tTotalMB\nAzureActivity\tAnalytics\t190000', 31)
     expect(r.rows[0].billableGb).toBe(190)
-    expect(r.warnings.join(' ')).toMatch(/billab/i)
+    expect(r.warnings.some(w => /no billable volume column/i.test(w))).toBe(true)
+    expect(r.warnings.some(w => /free tables will look like spend/i.test(w))).toBe(true)
   })
 
   /**
@@ -491,14 +516,19 @@ describe('plan values', () => {
    * Truth:  reject or quarantine the unrecognised value, and word the warning to
    *         distinguish "column absent" from "value not understood".
    */
-  it.fails('DEFECT: an unrecognised Plan value becomes Analytics under a warning that misreports why', () => {
+  it('FIXED: an unrecognised Plan value is reported as such, not as a missing column', () => {
     const r = parseUsagePaste([
       'TableName\tPlan\tBillableMB',
       'B\tBasic Logs\t100',
       'C\tStandard\t100',
       'D\t\t100',
     ].join('\n'), 31)
+    // All three rows have a Plan column with a value we cannot read. Blaming a
+    // missing column sent the user to fix the wrong thing.
     expect(r.warnings.join(' ')).not.toMatch(/no Plan column/i)
+    expect(r.warnings.some(w => /Plan value we do not recognise/i.test(w))).toBe(true)
+    // And it names the consequence: tiers only cover Analytics volume.
+    expect(r.warnings.some(w => /inflates the commitment tier/i.test(w))).toBe(true)
   })
 })
 
@@ -639,5 +669,70 @@ describe('downstream impact of the silent defects', () => {
     // refuses rather than fabricating a costed recommendation.
     expect(() => analyseUsage(parseUsagePaste(tsv('AzureActivity\tAnalytics\t190000\t'), 31)))
       .toThrow(/unreadable billable volume/i)
+  })
+})
+
+describe('a header narrower than its data rows', () => {
+  // Regression. The arity check originally compared each row against the HEADER
+  // width, so a heading row missing a column — an Excel round-trip that adds an
+  // unnamed column, or a heading that did not copy across in full — made every
+  // row overshoot at once. All of them were dropped and the parse then failed
+  // with "Found the headings but no usable rows", which sent the reader looking
+  // for empty results or currency symbols. Comparing against the modal data
+  // width instead isolates rows that disagree with their neighbours, which is
+  // the only case the check was ever meant to catch.
+
+  const shortHeader = [
+    'TableName\tPlan\tTotalMB',
+    'A\tAnalytics\t1000\t1000',
+    'B\tAnalytics\t2000\t2000',
+    'C\tAnalytics\t3000\t3000',
+  ].join('\n')
+
+  it('reads every row rather than condemning the whole paste', () => {
+    const r = parseUsagePaste(shortHeader, 31)
+    // Rows come back ordered by volume, so compare as a set.
+    expect(r.rows.map(x => x.tableName).sort()).toEqual(['A', 'B', 'C'])
+  })
+
+  it('reads the named columns correctly, since leading columns still align', () => {
+    const r = parseUsagePaste(shortHeader, 31)
+    expect(row(r, 'B').totalGb).toBe(2)
+  })
+
+  it('says the heading row is short rather than staying silent', () => {
+    const r = parseUsagePaste(shortHeader, 31)
+    expect(r.warnings.some(w => /more column/i.test(w) && /heading/i.test(w))).toBe(true)
+  })
+
+  it('still excludes a single row that disagrees with its neighbours', () => {
+    // The narrower case the check exists for: most rows agree, one does not.
+    const r = parseUsagePaste([
+      'TableName,Plan,TotalMB,BillableMB',
+      'A,Analytics,1000,1000',
+      'B,Analytics,1000,1000',
+      'C,Analytics,1000,1000',
+      'D,Analytics,1000,1000',
+      'SecurityEvent,Analytics,1,234.5,1,234.5',
+    ].join('\n'), 31)
+    expect(r.rows.map(x => x.tableName).sort()).toEqual(['A', 'B', 'C', 'D'])
+    expect(r.warnings.some(w => /more columns than the heading/i.test(w))).toBe(true)
+  })
+})
+
+describe('numeric forms deliberately rejected, and why', () => {
+  // Called out in review as the stricter-than-necessary edge of the grammar.
+  // Neither form is one Azure emits: Kusto aggregates and round() always render
+  // a leading digit, and Excel normalises a typed ".5" to "0.5" on commit. They
+  // stay rejected so the grammar has one rule rather than a special case — but
+  // pinned here so the decision is deliberate and visible if a real export ever
+  // produces one, because a false rejection now DROPS the row.
+  it('rejects a bare leading or trailing decimal point', () => {
+    expect(parseNumber('.5')).toBeNull()
+    expect(parseNumber('5.')).toBeNull()
+    // The forms Azure actually emits for the same values.
+    expect(parseNumber('0.5')).toBe(0.5)
+    expect(parseNumber('5')).toBe(5)
+    expect(parseNumber('5.0')).toBe(5)
   })
 })
