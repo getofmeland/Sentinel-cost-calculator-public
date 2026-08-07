@@ -1,13 +1,22 @@
 import { useState } from 'react'
 import { PricingProvider, usePricing } from './contexts/PricingContext'
 import { IngestionEstimator } from './components/IngestionEstimator'
+import { AnalyseMode } from './components/AnalyseMode'
 import { RegionSelector } from './components/RegionSelector'
 import { FeatureRequestButton } from './components/FeatureRequestButton'
 import { FeatureRequestModal } from './components/FeatureRequestModal'
 import { CompliancePresetId } from './data/compliancePresets'
 import brand from './config/brand'
 
+type Mode = 'estimate' | 'analyse'
+
+const MODES: Array<{ id: Mode; label: string; hint: string }> = [
+  { id: 'estimate', label: 'Estimate', hint: 'plan a new deployment' },
+  { id: 'analyse', label: 'Analyse', hint: 'optimise an existing one' },
+]
+
 function AppShell() {
+  const [mode, setMode] = useState<Mode>('estimate')
   const {
     region, onRegionChange,
     fxRate, onFxRateChange,
@@ -101,6 +110,34 @@ function AppShell() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8 pb-28">
+        {/* Mode switch. Two different jobs — pricing a deployment that does not
+            exist yet, versus optimising one that does — sharing one engine. */}
+        <div
+          role="tablist"
+          aria-label="Calculator mode"
+          className="inline-flex rounded-lg border border-white/15 p-1 mb-6 bg-surface"
+        >
+          {MODES.map(m => (
+            <button
+              key={m.id}
+              role="tab"
+              aria-selected={mode === m.id}
+              aria-controls={`mode-panel-${m.id}`}
+              id={`mode-tab-${m.id}`}
+              type="button"
+              onClick={() => setMode(m.id)}
+              className={`px-4 py-1.5 text-sm rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                mode === m.id
+                  ? 'bg-primary text-white font-semibold'
+                  : 'text-light/70 hover:text-light hover:bg-white/5'
+              }`}
+            >
+              {m.label}
+              <span className="sr-only"> — {m.hint}</span>
+            </button>
+          ))}
+        </div>
+
         {/* Loading overlay wrapper */}
         <div className="relative">
           {isLoading && (
@@ -111,7 +148,14 @@ function AppShell() {
               </svg>
             </div>
           )}
-          <IngestionEstimator onPresetChange={setActivePresetId} />
+          {/* Both panels stay mounted so switching modes does not discard a
+              part-built estimate or a pasted analysis. */}
+          <div id="mode-panel-estimate" role="tabpanel" aria-labelledby="mode-tab-estimate" hidden={mode !== 'estimate'}>
+            <IngestionEstimator onPresetChange={setActivePresetId} />
+          </div>
+          <div id="mode-panel-analyse" role="tabpanel" aria-labelledby="mode-tab-analyse" hidden={mode !== 'analyse'}>
+            <AnalyseMode />
+          </div>
         </div>
       </main>
 

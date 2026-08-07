@@ -155,6 +155,19 @@ export const SERVER_WORKLOADS: ServerWorkload[] = [
   },
 
   // ── Linux Server Workloads ─────────────────────────────────────────────────
+  //
+  // p2Eligible is false throughout, and that is deliberate rather than an
+  // oversight. These are modelled as producing Syslog (see sentinelTables.ts),
+  // and Syslog is not among the tables covered by the Defender for Servers
+  // 500 MB/server/day allowance.
+  //
+  // LinuxAuditLog *is* on Microsoft's eligible list, so a host collecting auditd
+  // through AMA would qualify. The estimator has no way to express that
+  // collection method, so it models the common case and under-claims rather
+  // than over-claims. Do not flip these to true without also modelling the
+  // distinction — it would credit an allowance most Syslog-based deployments
+  // are not entitled to.
+  // https://learn.microsoft.com/en-us/azure/azure-monitor/logs/cost-logs
   {
     id: 'lx-web',
     name: 'Linux Web Server',

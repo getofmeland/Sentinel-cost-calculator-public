@@ -38,6 +38,19 @@ export const TIER_PLACEMENT_DEFAULTS: TierPlacementDefault[] = [
   { sourceId: 'ws-dhcp',       recommendedTier: 'analytics', reason: 'IP lease events — useful for device tracking and rogue device detection' },
   { sourceId: 'ws-print',      recommendedTier: 'data-lake', reason: 'Low security value; investigation only' },
   { sourceId: 'ws-exchange',   recommendedTier: 'analytics', reason: 'Email gateway events for BEC and phishing detection (on-premises Exchange)' },
+  // Shared table groups. sentinelTables.ts collapses all Windows workloads onto
+  // SecurityEvent and all Linux workloads onto Syslog, so those group ids reach
+  // the placement lookup when Analyse mode resolves a measured table. Declared
+  // explicitly rather than left to the 'analytics' fallback, so the behaviour is
+  // intentional and survives a change to that default.
+  { sourceId: 'ws-security', recommendedTier: 'analytics', reason: 'Windows Security Events — logon and process telemetry underpins most detections' },
+  // Deliberately 'analytics' despite the high volume: Syslog is also claimed by
+  // third-party firewall and VPN sources, which recommend Data Lake. The
+  // disagreement is the point — Syslog genuinely carries everything from CEF
+  // firewall traffic to Linux auth events, so Analyse mode asks rather than
+  // guessing which one a given workspace holds.
+  { sourceId: 'lx-syslog',   recommendedTier: 'analytics', reason: 'Mixed content — Linux authentication events carry detection value' },
+
   // Linux Server Workloads
   { sourceId: 'lx-web',        recommendedTier: 'analytics', reason: 'Web server auth and access events' },
   { sourceId: 'lx-app',        recommendedTier: 'analytics', reason: 'Application events for behavioural anomaly detection' },
