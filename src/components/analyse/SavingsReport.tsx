@@ -1,6 +1,8 @@
+import { useMemo, useState } from 'react'
 import { type AnalysisResult, type Opportunity } from '../../utils/analysis'
 import { fmtCurrency } from '../../utils/currency'
 import { usePricing } from '../../contexts/PricingContext'
+import { TableInfoPopover } from '../TableInfoPopover'
 
 interface Props {
   result: AnalysisResult
@@ -30,6 +32,20 @@ const STATUS_LABEL: Record<string, string> = {
  */
 export function SavingsReport({ result }: Props) {
   const { fxRate, eurRate, displayCurrency } = usePricing()
+  const [filter, setFilter] = useState('')
+  const [unknownOnly, setUnknownOnly] = useState(false)
+
+  const visibleTables = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    return result.tables.filter(t => {
+      if (unknownOnly && t.status !== 'unclassified') return false
+      if (!q) return true
+      // Match the table name or the source it resolves to, so searching
+      // "firewall" finds CommonSecurityLog.
+      return t.tableName.toLowerCase().includes(q)
+        || (t.match?.sourceIds ?? []).some(s => s.toLowerCase().includes(q))
+    })
+  }, [result.tables, filter, unknownOnly])
   const money = (usd: number, decimals = 0) =>
     fmtCurrency(usd, displayCurrency, fxRate, eurRate, decimals)
 
@@ -157,8 +173,37 @@ export function SavingsReport({ result }: Props) {
 
       {/* ── Per-table breakdown ─────────────────────────────────────────── */}
       <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
-        <div className="px-6 py-3 border-b border-white/10">
-          <h3 className="text-sm font-semibold text-light">Every table, by cost</h3>
+        <div className="px-6 py-3 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-light">Every table, by cost</h3>
+            <p className="text-xs text-light/60 mt-0.5">
+              Recognised tables carry an ⓘ explaining what produces them and why they get their
+              recommendation.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <label htmlFor="table-filter" className="sr-only">Filter tables</label>
+            <input
+              id="table-filter"
+              type="search"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              placeholder="Filter tables…"
+              className="w-44 bg-surface-raised border border-white/15 text-light rounded-md px-2.5 py-1.5 text-xs placeholder:text-light/60 focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <button
+              type="button"
+              onClick={() => setUnknownOnly(v => !v)}
+              aria-pressed={unknownOnly}
+              className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                unknownOnly
+                  ? 'bg-primary text-white border-primary font-medium'
+                  : 'border-white/15 text-light/70 hover:bg-white/10'
+              }`}
+            >
+              Unrecognised only
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm" aria-label="Ingestion and cost by table">
@@ -172,9 +217,24 @@ export function SavingsReport({ result }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
-              {result.tables.map(t => (
+              {visibleTables.map(t => (
                 <tr key={t.tableName + t.plan}>
-                  <td className="px-4 py-2 font-mono text-xs text-light">{t.tableName}</td>
+                  <td className="px-4 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="font-mono text-xs text-light">{t.tableName}</span>
+                      {/* Reuses the source reference already built for Estimate
+                          mode: description, connector, sample KQL and doc link. */}
+                      {t.match?.sourceIds[0] && (
+                        <TableInfoPopover
+                          sourceId={t.match.sourceIds[0]}
+                          sourceName={t.tableName}
+                        />
+                      )}
+                    </span>
+                    {t.match?.reason && (
+                      <p className="text-[10px] text-light/60 mt-0.5 max-w-md">{t.match.reason}</p>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-xs text-light/70">{t.plan}</td>
                   <td className="px-4 py-2 text-right font-mono text-xs text-light/70">
                     {t.billableGbPerDay.toLocaleString('en-GB', { maximumFractionDigits: 2 })}
@@ -200,6 +260,13 @@ export function SavingsReport({ result }: Props) {
                   </td>
                 </tr>
               ))}
+              {visibleTables.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-xs text-light/60">
+                    No tables match that filter.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
