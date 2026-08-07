@@ -125,6 +125,56 @@ export const ANALYTICS_ARCHIVE_RATE_USD_PER_GB_PER_MONTH = 0.025
 /** Meter: Sentinel / "Data lake storage Data Stored" */
 export const DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH = 0.024
 
+// ─── Data Lake Compute ───────────────────────────────────────────────────────
+//
+// Two meters bill compute rather than data volume. Both report a unit of
+// "1 Hour" in the retail API, but that hour is a *vCore*-hour, not a pool-hour:
+// the billed quantity is vCores x wall-clock time. Microsoft's billing page
+// settles this with worked examples —
+//
+//   cost = 49 x (Price per vCore hour) x (5/60)     a 5-minute graph build
+//   cost =  6 x (Price per vCore hour) x (1/60)     a 1-minute graph query
+//
+// The distinction is worth 49x on a graph build, so it is spelled out here.
+// https://learn.microsoft.com/en-us/azure/sentinel/billing
+
+/** Meter: Sentinel / "Graph" — per vCore-hour. Custom graphs only (Preview). */
+export const GRAPH_RATE_USD_PER_VCORE_HOUR = 3.75
+
+/** Meter: Sentinel / "Advanced Data Insights" — per vCore-hour. Notebook/Spark compute. */
+export const ADVANCED_DATA_INSIGHTS_RATE_USD_PER_VCORE_HOUR = 0.1875
+
+/**
+ * There is a single graph SKU. Builds run far wider than queries, which is why
+ * rebuild frequency dominates graph cost: a build costs 49 x the hourly rate,
+ * i.e. $183.75 per wall-clock hour at the UK South rate.
+ */
+export const GRAPH_BUILD_VCORES = 49
+export const GRAPH_QUERY_VCORES = 6
+
+/** Microsoft documents a one-minute floor for graph *queries* only — not builds. */
+export const GRAPH_QUERY_MIN_MINUTES = 1
+
+/**
+ * Microsoft's illustrative build duration. This is the figure from their worked
+ * example, NOT a measured typical value — they publish no sizing guidance, and
+ * never document what makes a build take longer (data volume, entity count,
+ * graph complexity are all unstated). Build duration is the dominant input to
+ * graph cost, so the UI exposes it and labels its provenance honestly.
+ */
+export const GRAPH_ILLUSTRATIVE_BUILD_MINUTES = 5
+
+/** Notebook pools available for data lake sessions and jobs, in vCores. */
+export const ADI_POOL_VCORES = [12, 32, 80] as const
+export type AdiPoolVCores = typeof ADI_POOL_VCORES[number]
+
+/**
+ * Spark session start-up is billable dead time — Microsoft's service limits put
+ * it at 5-6 minutes before any user code runs. On the 80-vCore pool that is
+ * roughly $1.50 per session before anything useful happens.
+ */
+export const ADI_SESSION_STARTUP_MINUTES = 6
+
 // ─── Retention Strategy ───────────────────────────────────────────────────────
 
 export type RetentionStrategy = 'analytics-extended' | 'data-lake-mirror'
@@ -485,6 +535,10 @@ export interface PricingBundle {
   analyticsExtendedRetentionRateUsd: number
   dataLakeRetentionRateUsd: number
   dataLakeQueryRateUsd: number
+  /** Per vCore-hour, not per pool-hour — see GRAPH_RATE_USD_PER_VCORE_HOUR */
+  graphRateUsdPerVCoreHour: number
+  /** Per vCore-hour, not per pool-hour */
+  advancedDataInsightsRateUsdPerVCoreHour: number
 }
 
 export const STATIC_PRICING_BUNDLE: PricingBundle = {
@@ -494,4 +548,6 @@ export const STATIC_PRICING_BUNDLE: PricingBundle = {
   analyticsExtendedRetentionRateUsd: ANALYTICS_INTERACTIVE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
   dataLakeRetentionRateUsd: DATA_LAKE_RETENTION_RATE_USD_PER_GB_PER_MONTH,
   dataLakeQueryRateUsd: DATA_LAKE_QUERY_RATE_USD_PER_GB,
+  graphRateUsdPerVCoreHour: GRAPH_RATE_USD_PER_VCORE_HOUR,
+  advancedDataInsightsRateUsdPerVCoreHour: ADVANCED_DATA_INSIGHTS_RATE_USD_PER_VCORE_HOUR,
 }

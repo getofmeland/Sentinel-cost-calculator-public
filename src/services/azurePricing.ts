@@ -126,6 +126,8 @@ const METERS = {
   lakeProcessing: 'Data processing Data Processed',
   lakeQuery: 'Data lake query Data Analyzed',
   lakeStorage: 'Data lake storage Data Stored',
+  graph: 'Graph',
+  advancedDataInsights: 'Advanced Data Insights',
 } as const
 
 function priceOf(items: AzurePriceItem[], meterName: string): number | null {
@@ -240,6 +242,14 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       analyticsExtendedRetentionRateUsd: STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd,
       dataLakeRetentionRateUsd: dl.storage ?? STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
       dataLakeQueryRateUsd: dl.query ?? STATIC_PRICING_BUNDLE.dataLakeQueryRateUsd,
+      // Compute meters. These have always been in the response — the single
+      // region-wide query added in the meter-matching fix returns them — they
+      // were simply never read.
+      graphRateUsdPerVCoreHour:
+        priceOf(items, METERS.graph) ?? STATIC_PRICING_BUNDLE.graphRateUsdPerVCoreHour,
+      advancedDataInsightsRateUsdPerVCoreHour:
+        priceOf(items, METERS.advancedDataInsights)
+        ?? STATIC_PRICING_BUNDLE.advancedDataInsightsRateUsdPerVCoreHour,
     }
 
     const entry: CacheEntry = { data: bundle, fetchedAt: Date.now(), isLive: true }
