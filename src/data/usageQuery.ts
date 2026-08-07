@@ -30,8 +30,10 @@ export const MB_PER_GB_BILLING = 1000
  * them in exponential notation.
  */
 export const USAGE_QUERY = `// Sentinel / Log Analytics ingestion by table — last ${USAGE_LOOKBACK_DAYS} complete days
-let LookbackDays = ${USAGE_LOOKBACK_DAYS};
-let PeriodStart = startofday(ago(LookbackDays));
+// Lookback is a timespan literal (the trailing d), not a number. ago() rejects
+// a bare integer with "argument #1 was not of an expected data type: timespan".
+let Lookback = ${USAGE_LOOKBACK_DAYS}d;
+let PeriodStart = startofday(ago(Lookback));
 let PeriodEnd = startofday(now());
 Usage
 | where TimeGenerated >= PeriodStart and TimeGenerated < PeriodEnd
