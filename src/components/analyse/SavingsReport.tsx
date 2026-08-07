@@ -1,0 +1,215 @@
+import { type AnalysisResult, type Opportunity } from '../../utils/analysis'
+import { fmtCurrency } from '../../utils/currency'
+import { usePricing } from '../../contexts/PricingContext'
+
+interface Props {
+  result: AnalysisResult
+}
+
+const KIND_LABEL: Record<Opportunity['kind'], string> = {
+  'billed-but-free': 'Misconfiguration',
+  'tier-placement': 'Tier placement',
+  'commitment-tier': 'Commitment tier',
+  'needs-input': 'Needs your input',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  'ok': '',
+  'move-to-lake': 'Move to Data Lake',
+  'should-be-free': 'Should be free',
+  'needs-input': 'Ambiguous',
+  'unclassified': 'Unrecognised',
+}
+
+/**
+ * Step three: what it found.
+ *
+ * Two things this deliberately does not do — claim a saving it cannot
+ * substantiate, and hide volume it could not classify. Both would make the
+ * headline number bigger and the advice worse.
+ */
+export function SavingsReport({ result }: Props) {
+  const { fxRate, eurRate, displayCurrency } = usePricing()
+  const money = (usd: number, decimals = 0) =>
+    fmtCurrency(usd, displayCurrency, fxRate, eurRate, decimals)
+
+  const savingPct = result.currentMonthlyUsd > 0
+    ? Math.round((result.totalAddressableSavingUsd / result.currentMonthlyUsd) * 100)
+    : 0
+
+  const substantiated = result.opportunities.filter(o => !o.needsUserInput)
+  const questions = result.opportunities.filter(o => o.needsUserInput)
+
+  return (
+    <div className="space-y-6">
+      {/* ── Headline ────────────────────────────────────────────────────── */}
+      <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/10">
+          <h2 className="text-lg font-semibold text-light">3. What we found</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/10">
+          <div className="px-6 py-4">
+            <p className="text-xs font-semibold text-light/60 uppercase tracking-widest">Current spend</p>
+            <p className="text-2xl font-bold font-mono text-light mt-1">
+              {money(result.currentMonthlyUsd)}
+              <span className="text-xs font-normal text-light/60 ml-1">/mo</span>
+            </p>
+            <p className="text-[11px] text-light/60 mt-1">Measured ingestion only</p>
+          </div>
+          <div className="px-6 py-4">
+            <p className="text-xs font-semibold text-light/60 uppercase tracking-widest">Identified saving</p>
+            <p className="text-2xl font-bold font-mono text-primary-text mt-1">
+              {money(result.totalAddressableSavingUsd)}
+              <span className="text-xs font-normal text-light/60 ml-1">/mo</span>
+            </p>
+            {savingPct > 0 && (
+              <p className="text-[11px] text-light/60 mt-1">{savingPct}% of current spend</p>
+            )}
+          </div>
+          <div className="px-6 py-4">
+            <p className="text-xs font-semibold text-light/60 uppercase tracking-widest">By plan</p>
+            <dl className="mt-1 text-xs text-light/70 space-y-0.5">
+              <div className="flex justify-between gap-3">
+                <dt>Analytics</dt><dd className="font-mono text-light">{money(result.analyticsMonthlyUsd)}</dd>
+              </div>
+              {result.basicMonthlyUsd > 0 && (
+                <div className="flex justify-between gap-3">
+                  <dt>Basic</dt><dd className="font-mono text-light">{money(result.basicMonthlyUsd)}</dd>
+                </div>
+              )}
+              {result.auxiliaryMonthlyUsd > 0 && (
+                <div className="flex justify-between gap-3">
+                  <dt>Auxiliary / Lake</dt><dd className="font-mono text-light">{money(result.auxiliaryMonthlyUsd)}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Opportunities ───────────────────────────────────────────────── */}
+      {substantiated.length > 0 && (
+        <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
+          <div className="px-6 py-3 border-b border-white/10">
+            <h3 className="text-sm font-semibold text-light">
+              Opportunities, largest first
+            </h3>
+            <p className="text-xs text-light/60 mt-0.5">
+              Applied in this order. Each is measured against what the previous one leaves, so the
+              figures add up rather than counting the same gigabytes twice.
+            </p>
+          </div>
+          <ol className="divide-y divide-white/10">
+            {substantiated.map((o, i) => (
+              <li key={o.kind} className="px-6 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-mono text-light/60">{i + 1}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary-text font-medium uppercase tracking-wide">
+                        {KIND_LABEL[o.kind]}
+                      </span>
+                      <span className="text-sm font-medium text-light">{o.title}</span>
+                    </div>
+                    <p className="text-xs text-light/60 mt-1.5 max-w-2xl">{o.detail}</p>
+                    {o.tables.length > 0 && (
+                      <p className="text-[11px] font-mono text-light/60 mt-1.5">
+                        {o.tables.slice(0, 6).join(', ')}
+                        {o.tables.length > 6 && ` and ${o.tables.length - 6} more`}
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-lg font-bold font-mono text-primary-text flex-shrink-0">
+                    {money(o.monthlySavingUsd)}
+                    <span className="text-[10px] font-normal text-light/60 ml-1">/mo</span>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* ── Things we will not guess about ──────────────────────────────── */}
+      {questions.map(o => (
+        <div key={o.kind} className="rounded-xl border border-warning/40 bg-warning/10 px-6 py-4">
+          <p className="text-sm font-medium text-light">{o.title}</p>
+          <p className="text-xs text-light/80 mt-1 max-w-2xl">{o.detail}</p>
+          <p className="text-[11px] font-mono text-light/70 mt-2">{o.tables.join(', ')}</p>
+        </div>
+      ))}
+
+      {/* ── Volume excluded from advice ─────────────────────────────────── */}
+      {result.unclassifiedTableCount > 0 && (
+        <div className="rounded-xl border border-white/10 bg-surface px-6 py-4">
+          <p className="text-sm font-medium text-light">
+            {result.unclassifiedTableCount} table{result.unclassifiedTableCount === 1 ? '' : 's'} not
+            recognised — {money(result.unclassifiedMonthlyUsd)}/mo
+          </p>
+          <p className="text-xs text-light/60 mt-1 max-w-2xl">
+            Custom tables and non-security data the calculator does not model. They are counted in
+            your current spend above but excluded from the recommendations, because we have no basis
+            for advising on data we cannot identify. That is{' '}
+            {result.unclassifiedGbPerDay.toLocaleString('en-GB', { maximumFractionDigits: 1 })} GB/day.
+          </p>
+        </div>
+      )}
+
+      {/* ── Per-table breakdown ─────────────────────────────────────────── */}
+      <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
+        <div className="px-6 py-3 border-b border-white/10">
+          <h3 className="text-sm font-semibold text-light">Every table, by cost</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" aria-label="Ingestion and cost by table">
+            <thead>
+              <tr className="bg-dark text-xs uppercase tracking-wide text-light/60">
+                <th className="px-4 py-2.5 text-left font-medium">Table</th>
+                <th className="px-4 py-2.5 text-left font-medium">Plan</th>
+                <th className="px-4 py-2.5 text-right font-medium">GB/day</th>
+                <th className="px-4 py-2.5 text-right font-medium">Cost/mo</th>
+                <th className="px-4 py-2.5 text-left font-medium">Recommendation</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {result.tables.map(t => (
+                <tr key={t.tableName + t.plan}>
+                  <td className="px-4 py-2 font-mono text-xs text-light">{t.tableName}</td>
+                  <td className="px-4 py-2 text-xs text-light/70">{t.plan}</td>
+                  <td className="px-4 py-2 text-right font-mono text-xs text-light/70">
+                    {t.billableGbPerDay.toLocaleString('en-GB', { maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-xs text-light/70">
+                    {money(t.monthlyCostUsd)}
+                  </td>
+                  <td className="px-4 py-2 text-xs">
+                    {t.status === 'ok' ? (
+                      <span className="text-light/60">—</span>
+                    ) : (
+                      <span
+                        className={
+                          t.status === 'should-be-free' ? 'text-accent-text font-medium'
+                            : t.status === 'move-to-lake' ? 'text-primary-text font-medium'
+                              : 'text-light/70'
+                        }
+                      >
+                        {STATUS_LABEL[t.status]}
+                        {t.potentialSavingUsd > 0 && ` · ${money(t.potentialSavingUsd)}/mo`}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="px-6 py-3 border-t border-white/10 text-[11px] text-light/60 leading-relaxed">
+          Costs use current list pricing for your selected region, applied to your measured volume.
+          Commitment tiers cover Analytics-plan volume only — Basic and Auxiliary are billed at flat
+          rates. Data lake usage and per-table retention are not measurable by query and are not
+          included here.
+        </p>
+      </div>
+    </div>
+  )
+}
