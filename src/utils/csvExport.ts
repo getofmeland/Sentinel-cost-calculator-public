@@ -1,6 +1,7 @@
 import { IngestionSummary } from './ingestion'
 import { CurrencyCode } from './currency'
 import { DAYS_PER_MONTH } from '../data/pricing'
+import type { ComputeCostBreakdown } from './compute'
 
 /**
  * Escape a CSV field. Quotes anything containing a delimiter, quote or newline,
@@ -33,6 +34,8 @@ export interface CsvExportOptions {
   recommendedTierLabel: string
   userCount: number
   region: string
+  /** Opt-in data lake compute; omitted from the export when nothing is enabled */
+  compute?: ComputeCostBreakdown
 }
 
 /**
@@ -64,6 +67,21 @@ export function buildEstimateCsv(o: CsvExportOptions): string {
       row.retentionDays,
       money(row.retentionMonthlyCostUsd),
     ])
+  }
+
+  if (o.compute && o.compute.totalMonthlyUsd > 0) {
+    rows.push(
+      [],
+      ['Data Lake compute (opt-in)', `Monthly (${o.currency})`],
+      ['Graph builds', money(o.compute.graphBuildMonthlyUsd)],
+      ['Graph queries', money(o.compute.graphQueryMonthlyUsd)],
+      ['Notebook compute for graph builds', money(o.compute.graphNotebookMonthlyUsd)],
+      ['Notebook sessions (interactive)', money(o.compute.adiInteractiveMonthlyUsd)],
+      ['Notebook jobs (scheduled)', money(o.compute.adiScheduledMonthlyUsd)],
+      ['Session start-up', money(o.compute.adiStartupMonthlyUsd)],
+      ['Compute total', money(o.compute.totalMonthlyUsd)],
+      ['Note', 'Billed per vCore-hour. Based on your activity estimates — Microsoft publishes no typical consumption figures.'],
+    )
   }
 
   rows.push(

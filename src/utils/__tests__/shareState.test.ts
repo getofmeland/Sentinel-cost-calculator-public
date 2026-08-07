@@ -15,6 +15,7 @@ import {
   MAX_USERS,
   type ShareableState,
 } from '../shareState'
+import { DEFAULT_COMPUTE_CONFIG } from '../compute'
 
 const fullState: ShareableState = {
   userCount: 2500,
@@ -36,6 +37,20 @@ const fullState: ShareableState = {
   manualGbValues: {},
   sizeOverrides: { mde: 'XL' },
   retentionStrategies: { 'entra-id': 'analytics-extended' },
+  compute: {
+    graphEnabled: true,
+    graphSchedule: 'weekly',
+    graphBuildsPerMonth: 3,
+    graphBuildMinutes: 8,
+    graphQueriesPerMonth: 250,
+    graphQueryMinutes: 2,
+    graphBuildNotebookMinutes: 12,
+    adiEnabled: true,
+    adiPoolVCores: 80,
+    adiInteractiveHoursPerMonth: 15,
+    adiInteractiveSessionsPerMonth: 20,
+    adiScheduledHoursPerMonth: 6,
+  },
 }
 
 describe('share state round-trip', () => {
@@ -145,5 +160,56 @@ describe('share state rejects untrusted input', () => {
 
   it('survives an entirely junk query string', () => {
     expect(() => decodeShareState('%%%&&&===')).not.toThrow()
+  })
+})
+
+describe('compute config in share links', () => {
+  it('round-trips every compute field', () => {
+    const decoded = decodeShareState(encodeShareState(fullState))!
+    expect(decoded.compute).toEqual(fullState.compute)
+  })
+
+  it('is omitted entirely when both meters are off, keeping links short', () => {
+    const encoded = encodeShareState({ ...DEFAULT_SHARE_STATE, selectedIds: ['entra-id'] })
+    expect(encoded).not.toContain('cp=')
+  })
+
+  it('falls back to defaults when the compute field is absent', () => {
+    const decoded = decodeShareState(`v=${SHARE_SCHEMA_VERSION}&u=1000`)!
+    expect(decoded.compute).toEqual(DEFAULT_COMPUTE_CONFIG)
+  })
+
+  it('rejects an unknown rebuild schedule', () => {
+    // 'continuously' is not a schedule Microsoft offers.
+    const decoded = decodeShareState(`v=${SHARE_SCHEMA_VERSION}&cp=1~continuously~1~5~0~1~10~0~32~0~0~0`)!
+    expect(decoded.compute.graphSchedule).toBe(DEFAULT_COMPUTE_CONFIG.graphSchedule)
+  })
+
+  it('rejects a pool size that does not exist', () => {
+    const decoded = decodeShareState(`v=${SHARE_SCHEMA_VERSION}&cp=0~daily~1~5~0~1~10~1~999~0~0~0`)!
+    expect(decoded.compute.adiPoolVCores).toBe(DEFAULT_COMPUTE_CONFIG.adiPoolVCores)
+  })
+
+  it('clamps an absurd build duration rather than trusting it', () => {
+    const decoded = decodeShareState(`v=${SHARE_SCHEMA_VERSION}&cp=1~daily~1~999999~0~1~10~0~32~0~0~0`)!
+    expect(decoded.compute.graphBuildMinutes).toBeLessThanOrEqual(1440)
+  })
+
+  it('rejects negative activity counts', () => {
+    const decoded = decodeShareState(`v=${SHARE_SCHEMA_VERSION}&cp=1~daily~-5~-5~-5~-5~-5~1~32~-5~-5~-5`)!
+    const c = decoded.compute
+    for (const n of [
+      c.graphBuildsPerMonth, c.graphBuildMinutes, c.graphQueriesPerMonth,
+      c.adiInteractiveHoursPerMonth, c.adiScheduledHoursPerMonth,
+    ]) {
+      expect(n).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('survives a truncated compute field without throwing', () => {
+    expect(() => decodeShareState(`v=${SHARE_SCHEMA_VERSION}&cp=1~daily`)).not.toThrow()
+    const decoded = decodeShareState(`v=${SHARE_SCHEMA_VERSION}&cp=1~daily`)!
+    expect(decoded.compute.graphEnabled).toBe(true)
+    expect(Number.isFinite(decoded.compute.graphBuildMinutes)).toBe(true)
   })
 })

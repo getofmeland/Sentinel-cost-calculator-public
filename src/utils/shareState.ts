@@ -6,6 +6,13 @@ import { CompliancePresetId, COMPLIANCE_PRESETS } from '../data/compliancePreset
 import { M365Licence, LICENCES } from '../data/licenceBenefits'
 import { CurrencyCode } from './currency'
 import { AZURE_REGION_GROUPS } from '../services/azurePricing'
+import {
+  DEFAULT_COMPUTE_CONFIG,
+  GRAPH_SCHEDULE_RUNS_PER_MONTH,
+  type ComputeConfig,
+  type GraphSchedule,
+} from './compute'
+import { ADI_POOL_VCORES, type AdiPoolVCores } from '../data/pricing'
 
 /**
  * Encodes an estimate into a URL so it survives a refresh and can be sent to a
@@ -47,6 +54,7 @@ export interface ShareableState {
   manualGbValues: Record<string, number>
   sizeOverrides: Record<string, TshirtSize>
   retentionStrategies: Record<string, RetentionStrategy>
+  compute: ComputeConfig
 }
 
 export const DEFAULT_SHARE_STATE: ShareableState = {
@@ -69,6 +77,7 @@ export const DEFAULT_SHARE_STATE: ShareableState = {
   manualGbValues: {},
   sizeOverrides: {},
   retentionStrategies: {},
+  compute: DEFAULT_COMPUTE_CONFIG,
 }
 
 // ─── Known-value sets, used to reject anything a URL invents ──────────────────
@@ -135,6 +144,26 @@ export function encodeShareState(state: ShareableState): string {
   for (const [key, map] of maps) {
     const encoded = encodeMap(map)
     if (encoded) p.set(key, encoded)
+  }
+
+  // Compute config travels as one compact field, and only when a meter is on.
+  // Order is positional, so the parser must stay in step with this list.
+  const c = state.compute
+  if (c.graphEnabled || c.adiEnabled) {
+    p.set('cp', [
+      c.graphEnabled ? 1 : 0,
+      c.graphSchedule,
+      c.graphBuildsPerMonth,
+      c.graphBuildMinutes,
+      c.graphQueriesPerMonth,
+      c.graphQueryMinutes,
+      c.graphBuildNotebookMinutes,
+      c.adiEnabled ? 1 : 0,
+      c.adiPoolVCores,
+      c.adiInteractiveHoursPerMonth,
+      c.adiInteractiveSessionsPerMonth,
+      c.adiScheduledHoursPerMonth,
+    ].join('~'))
   }
 
   return p.toString()
@@ -256,7 +285,47 @@ export function decodeShareState(search: string): ShareableState | null {
     }
   }
 
+  const compute = p.get('cp')
+  if (compute) state.compute = decodeCompute(compute)
+
   return state
+}
+
+const SCHEDULES = new Set<GraphSchedule>(
+  Object.keys(GRAPH_SCHEDULE_RUNS_PER_MONTH) as GraphSchedule[],
+)
+const POOLS = new Set<number>(ADI_POOL_VCORES)
+
+/**
+ * Compute config from its positional encoding. Every field is bounded — an
+ * hourly rebuild is already thousands a month, so a hand-edited link must not
+ * be able to drive the figure to nonsense.
+ */
+function decodeCompute(raw: string): ComputeConfig {
+  const parts = raw.split('~')
+  const num = (i: number, max: number, fallback: number) => {
+    const n = Number.parseFloat(parts[i])
+    return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : fallback
+  }
+
+  const d = DEFAULT_COMPUTE_CONFIG
+  const schedule = parts[1] as GraphSchedule
+  const pool = Number.parseInt(parts[8], 10)
+
+  return {
+    graphEnabled: parts[0] === '1',
+    graphSchedule: SCHEDULES.has(schedule) ? schedule : d.graphSchedule,
+    graphBuildsPerMonth: num(2, 100000, d.graphBuildsPerMonth),
+    graphBuildMinutes: num(3, 1440, d.graphBuildMinutes),          // a day is generous
+    graphQueriesPerMonth: num(4, 10000000, d.graphQueriesPerMonth),
+    graphQueryMinutes: num(5, 7.5, d.graphQueryMinutes),           // documented query timeout
+    graphBuildNotebookMinutes: num(6, 1440, d.graphBuildNotebookMinutes),
+    adiEnabled: parts[7] === '1',
+    adiPoolVCores: POOLS.has(pool) ? (pool as AdiPoolVCores) : d.adiPoolVCores,
+    adiInteractiveHoursPerMonth: num(9, 100000, d.adiInteractiveHoursPerMonth),
+    adiInteractiveSessionsPerMonth: num(10, 100000, d.adiInteractiveSessionsPerMonth),
+    adiScheduledHoursPerMonth: num(11, 100000, d.adiScheduledHoursPerMonth),
+  }
 }
 
 // ─── Persistence ─────────────────────────────────────────────────────────────

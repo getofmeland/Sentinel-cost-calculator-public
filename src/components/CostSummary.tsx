@@ -16,6 +16,8 @@ interface Props {
   analyticsGrossGbPerDay: number
   /** Analytics GB/day after licence grants — what a commitment tier is sized against */
   analyticsNetGbPerDay: number
+  /** Opt-in data lake compute (graph + notebooks), monthly USD. Zero unless enabled. */
+  computeMonthlyUsd: number
 }
 
 function SavingBadge({ pct }: { pct: number }) {
@@ -59,6 +61,7 @@ export function CostSummary({
   commitmentOptions,
   analyticsGrossGbPerDay,
   analyticsNetGbPerDay,
+  computeMonthlyUsd,
 }: Props) {
   const { fxRate, displayCurrency, eurRate } = usePricing()
   const tierOptions = commitmentOptions.filter(o => !o.isPayg)
@@ -84,7 +87,10 @@ export function CostSummary({
   const analyticsMonthly = summary.analyticsDailyCostUsd * DAYS_PER_MONTH
   const dataLakeMonthly  = summary.dataLakeDailyCostUsd  * DAYS_PER_MONTH
   const retentionMonthly = summary.retentionMonthlyCostUsd
-  const totalPayg        = analyticsMonthly + dataLakeMonthly + retentionMonthly
+  // Compute is independent of ingestion volume and untouched by commitment
+  // tiers or licence grants, so it lands identically in all three scenarios.
+  const computeMonthly   = computeMonthlyUsd
+  const totalPayg        = analyticsMonthly + dataLakeMonthly + retentionMonthly + computeMonthly
 
   // ── Savings ─────────────────────────────────────────────────────────────
   const totalSavings = defenderSavedMonthlyUsd + e5SavedMonthlyUsd
@@ -125,7 +131,9 @@ export function CostSummary({
   const commitmentDefenderCredit = grantedGbPerDay > 0 ? commitmentCreditMonthly * (1 - e5Share) : 0
 
   const commitmentAnalyticsSaving = analyticsMonthly - commitmentGrossMonthly
-  const commitmentOptimisedTotal = Math.max(0, commitmentNetMonthly + dataLakeMonthly + retentionMonthly)
+  const commitmentOptimisedTotal = Math.max(
+    0, commitmentNetMonthly + dataLakeMonthly + retentionMonthly + computeMonthly,
+  )
 
   // ── vs-PAYG percentages ──────────────────────────────────────────────────
   const savingsPct    = paygTotal > 0 ? ((paygTotal - withSavingsTotal)    / paygTotal) * 100 : 0
@@ -241,6 +249,19 @@ export function CostSummary({
                 <CostCell usd={summary.dataLakeNativeRetentionMonthlyCostUsd} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
                 <CostCell usd={summary.dataLakeNativeRetentionMonthlyCostUsd} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
                 <CostCell usd={summary.dataLakeNativeRetentionMonthlyCostUsd} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
+              </tr>
+            )}
+
+            {/* Opt-in compute — only shown when a meter is actually enabled */}
+            {computeMonthly > 0 && (
+              <tr>
+                <td className="px-4 py-2.5 text-light/70">
+                  Data Lake compute
+                  <span className="ml-1.5 text-[10px] text-light/60">(opt-in)</span>
+                </td>
+                <CostCell usd={computeMonthly} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
+                <CostCell usd={computeMonthly} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
+                <CostCell usd={computeMonthly} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
               </tr>
             )}
 
