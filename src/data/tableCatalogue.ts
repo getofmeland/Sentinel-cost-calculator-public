@@ -252,7 +252,72 @@ const OPERATIONAL: CatalogueEntry[] = [
   })),
 ]
 
+/**
+ * Defender XDR advanced hunting tables that `sentinelTables.ts` does not list.
+ *
+ * The source mapping covers the best-known handful — DeviceEvents,
+ * DeviceProcessEvents, DeviceNetworkEvents — so a tester saw the odd result of
+ * DeviceNetworkEvents resolving while DeviceImageLoadEvents beside it did not.
+ *
+ * Every one of these recommends Analytics, and the reason is *not* the usual
+ * "keep detections queryable". These tables are the pool the Microsoft 365 E5
+ * grant is drawn from: 5 MB/user/day of Defender XDR data ingests free. Moving
+ * them to the Lake tier takes data that costs nothing and starts paying Lake
+ * ingestion for it. A cost model that knows rates but not grants gets this
+ * exactly backwards, so the reason text has to carry the grant.
+ *
+ * Lake support confirmed "Yes" on each table's reference page — they *can* be
+ * moved. They should not be.
+ */
+const DEFENDER_XDR: CatalogueEntry[] = [
+  {
+    name: 'DeviceImageLoadEvents',
+    description: 'DLL load events from Defender for Endpoint.',
+    category: 'security', billable: true, lakeCapable: true, recommendedTier: 'analytics',
+    reason: 'Covered by the E5 Defender grant — moving it to the Lake tier starts charging for data that ingests free.',
+    caveat: 'Noisy relative to its detection value. If it is genuinely large, filter at the connector rather than changing tier.',
+  },
+  {
+    name: 'DeviceRegistryEvents',
+    description: 'Registry key creation and modification, with the initiating process.',
+    category: 'security', billable: true, lakeCapable: true, recommendedTier: 'analytics',
+    reason: 'Persistence lives here, and it is covered by the E5 Defender grant. Keep it on Analytics.',
+  },
+  {
+    name: 'DeviceFileCertificateInfo',
+    description: 'Signing certificate details for files seen on endpoints.',
+    category: 'security', billable: true, lakeCapable: true, recommendedTier: 'analytics',
+    reason: 'Low volume, and covered by the E5 Defender grant. Nothing to save by moving it.',
+  },
+  {
+    name: 'AlertInfo',
+    description: 'Defender XDR alert metadata — severity, category and MITRE technique.',
+    category: 'security', billable: true, lakeCapable: true, recommendedTier: 'analytics',
+    reason: 'Alert metadata, tiny by volume and the entry point for most investigations.',
+    caveat: 'Billable, even though SecurityAlert is free. The two carry near-identical alert data and are easily confused on a bill.',
+  },
+]
+
 const PLATFORM_AND_FREE: CatalogueEntry[] = [
+  {
+    name: 'SecurityIncident',
+    description: 'Incidents raised by Sentinel and Defender XDR.',
+    category: 'platform', billable: false, lakeCapable: true, recommendedTier: 'free',
+    reason: 'Free — Microsoft lists it explicitly among the free data types.',
+  },
+  {
+    name: 'Watchlist',
+    description: 'Reference data imported from CSV for joins and alert conditions.',
+    category: 'security', billable: true, lakeCapable: false, recommendedTier: 'analytics',
+    reason: 'Reference data you join against, so it has to stay queryable.',
+    caveat: 'Billable despite being data you uploaded yourself, and re-ingests on every update — a watchlist refreshed nightly is ingested nightly, in full.',
+  },
+  {
+    name: 'Anomalies',
+    description: 'Output of Sentinel anomaly analytics rules.',
+    category: 'security', billable: true, lakeCapable: true, recommendedTier: 'analytics',
+    reason: 'Sentinel’s own detection output — low volume, and the thing your rules are meant to act on.',
+  },
   {
     name: 'Heartbeat', description: 'Agent liveness records.',
     category: 'platform', billable: false, lakeCapable: false, recommendedTier: 'free',
@@ -293,7 +358,7 @@ const PLATFORM_AND_FREE: CatalogueEntry[] = [
 ]
 
 export const TABLE_CATALOGUE: CatalogueEntry[] = [
-  ...AWS, ...GCP, ...THREAT_INTEL, ...OPERATIONAL, ...PLATFORM_AND_FREE,
+  ...AWS, ...GCP, ...THREAT_INTEL, ...DEFENDER_XDR, ...OPERATIONAL, ...PLATFORM_AND_FREE,
 ]
 
 const BY_NAME = new Map(TABLE_CATALOGUE.map(e => [e.name.toLowerCase(), e]))
