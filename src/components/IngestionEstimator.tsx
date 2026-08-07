@@ -30,6 +30,8 @@ import {
   type ShareableState,
 } from '../utils/shareState'
 import { buildEstimateCsv, downloadCsv } from '../utils/csvExport'
+import { ComputeCostPanel } from './ComputeCostPanel'
+import { computeComputeCosts, DEFAULT_COMPUTE_CONFIG, type ComputeConfig } from '../utils/compute'
 
 type TabId = 'ingestion' | 'placement' | 'optimisation' | 'summary'
 
@@ -94,6 +96,11 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const [licence, setLicence] = useState<M365Licence>(restored?.licence ?? 'none')
   const [defenderEnabled, setDefenderEnabled] = useState(restored?.defenderEnabled ?? false)
 
+  // ── Opt-in data lake compute (graph + notebooks) ───────────────────────
+  const [computeConfig, setComputeConfig] = useState<ComputeConfig>(
+    restored?.compute ?? DEFAULT_COMPUTE_CONFIG,
+  )
+
   // Region and currency live in PricingContext, so push the restored values up
   // once rather than duplicating that state here.
   useEffect(() => {
@@ -126,11 +133,13 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     manualGbValues,
     sizeOverrides: sourceSizeOverrides,
     retentionStrategies,
+    compute: computeConfig,
   }), [
     userCount, selectedIds, globalSize, activePresetId, mifidExtended,
     globalRetentionStrategy, licence, defenderEnabled, region, displayCurrency,
     serverCounts, serverLevels, deviceCounts, logTiers, retentionDays,
     selectedVariants, manualGbValues, sourceSizeOverrides, retentionStrategies,
+    computeConfig,
   ])
 
   // Autosave, debounced so dragging the user slider does not thrash storage.
@@ -203,8 +212,14 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const licenceLabel = LICENCES.find(l => l.id === licence)?.label ?? licence
   const recommendedAnalyticsRateUsd = commitmentOptions.find(o => o.isRecommended && !o.isPayg)?.tier?.effectiveRateUsd ?? pricing.paygRateUsd
 
+  // Opt-in compute is independent of ingestion volume and of commitment tiers,
+  // so it is added identically to every scenario rather than being discounted.
+  const computeCosts = computeComputeCosts(computeConfig, pricing)
+  const computeMonthly = computeCosts.totalMonthlyUsd
+
   // ── Sticky bar values ──────────────────────────────────────────────────
-  const paygMonthly = summary.totalDailyCostUsd * DAYS_PER_MONTH + summary.retentionMonthlyCostUsd
+  const paygMonthly =
+    summary.totalDailyCostUsd * DAYS_PER_MONTH + summary.retentionMonthlyCostUsd + computeMonthly
   const totalSavings = licenceBenefits.totalSavedMonthlyUsd
   const withSavingsMonthly = Math.max(0, paygMonthly - totalSavings)
   const recommendedOption = commitmentOptions.find(o => o.isRecommended && !o.isPayg)
@@ -221,7 +236,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     0,
     analyticsCommitmentMonthly
       + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
-      + summary.retentionMonthlyCostUsd,
+      + summary.retentionMonthlyCostUsd
+      + computeMonthly,
   )
 
   // ── Handlers ───────────────────────────────────────────────────────────
@@ -418,6 +434,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
       recommendedTierLabel: recommendedOption?.label ?? 'Pay-as-you-go',
       userCount,
       region: regionDisplayName,
+      compute: computeCosts,
     })
     downloadCsv(`sentinel-estimate-${userCount}-users.csv`, csv)
   }
@@ -693,6 +710,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           windowsServerGbPerDay={windowsServerGbPerDay}
           linuxServerGbPerDay={linuxServerGbPerDay}
         />
+        <ComputeCostPanel config={computeConfig} onChange={setComputeConfig} />
         <TierComparison
           analyticsGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
           dataLakeGbPerDay={summary.dataLakeGbPerDay}
@@ -709,6 +727,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           commitmentOptions={commitmentOptions}
           analyticsGrossGbPerDay={summary.analyticsGbPerDay}
           analyticsNetGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
+          computeMonthlyUsd={computeMonthly}
         />
       </div>
 
