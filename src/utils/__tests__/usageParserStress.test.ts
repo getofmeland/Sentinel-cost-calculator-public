@@ -736,3 +736,51 @@ describe('numeric forms deliberately rejected, and why', () => {
     expect(parseNumber('5.0')).toBe(5)
   })
 })
+
+describe('when corrupted rows are the MAJORITY', () => {
+  // The blind spot in judging rows by width alone, found by attacking the fix
+  // that replaced the original header-width check. A workspace full of vendor
+  // tables with commas in their names — "Palo Alto, Networks" — makes the
+  // CORRUPTED width the modal width. Every corrupted row then looks like the
+  // norm and sails through, while its columns are read one place left.
+  //
+  // Before the alignment check: ten corrupted rows accepted, billable volume
+  // understated by half, every table name silently truncated at the comma.
+
+  const paste = [
+    'TableName,Plan,TotalMB,BillableMB',
+    // Five clean rows first, so the sniffer confidently settles on the comma.
+    ...Array.from({ length: 5 }, (_, i) => `Clean${i},Analytics,1000,2000`),
+    // Ten corrupted rows — now the majority, and the modal width.
+    ...Array.from({ length: 10 }, (_, i) => `Vendor${i}, Suite,Analytics,1000,2000`),
+  ].join('\n')
+
+  it('excludes the corrupted majority rather than reading them shifted', () => {
+    const r = parseUsagePaste(paste, 31)
+    expect(r.rows.filter(x => x.tableName.startsWith('Vendor'))).toHaveLength(0)
+  })
+
+  it('keeps the clean minority, read correctly', () => {
+    const r = parseUsagePaste(paste, 31)
+    const clean = r.rows.filter(x => x.tableName.startsWith('Clean'))
+    expect(clean).toHaveLength(5)
+    expect(clean[0].totalGb).toBe(1)
+    expect(clean[0].billableGb).toBe(2)
+  })
+
+  it('says volume is missing rather than reporting a confident wrong total', () => {
+    const r = parseUsagePaste(paste, 31)
+    expect(r.warnings.some(w => /more columns than the heading/i.test(w))).toBe(true)
+  })
+
+  it('still accepts a genuinely short header, where the typed cells do align', () => {
+    // The case the alignment check must NOT catch: same width mismatch, but
+    // every named column parses, so the heading is merely short.
+    const r = parseUsagePaste([
+      'TableName\tPlan\tTotalMB',
+      ...Array.from({ length: 8 }, (_, i) => `T${i}\tAnalytics\t1000\t1000`),
+    ].join('\n'), 31)
+    expect(r.rows).toHaveLength(8)
+    expect(r.rows[0].totalGb).toBe(1)
+  })
+})

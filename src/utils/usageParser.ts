@@ -164,6 +164,40 @@ export function matchPlan(raw: string | undefined): TablePlan | null {
   return normalisePlan(raw)
 }
 
+/**
+ * Does a row's data look like it belongs in the columns the header names?
+ *
+ * Used only for rows WIDER than the header, where there are two possible
+ * explanations and they need telling apart:
+ *
+ *   - the heading row is simply short (an Excel round-trip adding an unnamed
+ *     column). The named columns still align, so every typed cell parses.
+ *   - an unquoted delimiter split a value, shifting everything after it. Then a
+ *     plan column holds part of a table name, or a numeric column holds a word.
+ *
+ * Width alone cannot separate these, and relying on width alone was wrong in a
+ * way that mattered: when most rows carried a comma inside the table name — a
+ * workspace full of vendor tables — the corrupted width became the MODAL width,
+ * so the corrupted rows sailed through while looking like the norm. Volume was
+ * understated by half and table names silently truncated.
+ *
+ * Empty cells are allowed: a blank billable figure is ordinary and is handled,
+ * and counted, elsewhere. Only a cell with content of the wrong TYPE is
+ * evidence of a shift.
+ */
+function rowAlignsWithHeader(cells: string[], index: Record<string, number>): boolean {
+  const planRaw = index.plan !== undefined ? cells[index.plan] : undefined
+  if (planRaw !== undefined && planRaw.trim() !== '' && normalisePlan(planRaw) === null) return false
+
+  for (const key of ['billableMb', 'billableGb', 'totalMb', 'totalGb'] as const) {
+    const i = index[key]
+    if (i === undefined) continue
+    const raw = cells[i]
+    if (raw !== undefined && raw.trim() !== '' && parseNumber(raw) === null) return false
+  }
+  return true
+}
+
 function normalisePlan(raw: string | undefined): TablePlan | null {
   // Whitespace stripped because the portal renders the plan as "Auxiliary / Lake"
   // with spaces around the slash, while the API value is plain "Auxiliary".
@@ -277,14 +311,23 @@ export function parseUsagePaste(input: string, lookbackDays = USAGE_LOOKBACK_DAY
   for (const line of lines.slice(1)) {
     const cells = splitDelimited(line, delimiter)
 
-    // A row wider than its neighbours has an unquoted delimiter inside a value —
-    // a thousands separator in a CSV, or a comma in a table name like "Palo
-    // Alto, Fortinet". Every column after it is then read from the wrong place.
-    // The delimiter is sniffed from the first five lines only, so a row further
-    // down can do this without the sniff noticing, and the result was billable
-    // volume understated fivefold with no warning at all. Short rows fall
-    // through to the missing-name and missing-volume checks below.
+    // Two independent signals that a row has been split by an unquoted
+    // delimiter, because either alone has a blind spot.
+    //
+    //   Width: a row wider than its neighbours disagrees with the paste. Catches
+    //   the shifted row when clean rows are the majority.
+    //
+    //   Alignment: a row wider than the HEADER whose typed cells do not parse at
+    //   that alignment. Catches the case width misses entirely — when corrupted
+    //   rows are the majority, they elect the modal width themselves and then
+    //   look normal.
+    //
+    // Short rows fall through to the missing-name and missing-volume checks.
     if (cells.length > modalWidth) { malformed++; continue }
+    if (cells.length > firstCells.length && !rowAlignsWithHeader(cells, index)) {
+      malformed++
+      continue
+    }
 
     const tableName = cells[index.tableName]?.trim()
     if (!tableName) { skipped++; continue }
