@@ -19,7 +19,7 @@ import { TierComparison } from './TierComparison'
 import { TierPlacementTab } from './TierPlacementTab'
 import { LicenceBenefits } from './LicenceBenefits'
 import {
-  SEGMENTS, MIN_USERS, MAX_USERS, MXDR_DEFAULT_SOURCE_IDS, segmentForUserCount,
+  SEGMENTS, MXDR_DEFAULT_SOURCE_IDS, segmentForUserCount, snapUserCount,
 } from '../data/segments'
 import { CostSummary } from './CostSummary'
 import { StickyTotalBar } from './StickyTotalBar'
@@ -267,11 +267,9 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     }
     // Typed values are clamped to the WHOLE range, not the active segment, so
     // typing 20,000 while on mid-market moves you to enterprise rather than
-    // silently truncating to 5,000. Snapping uses the step of whichever segment
-    // the value lands in.
-    const clamped = Math.min(MAX_USERS, Math.max(MIN_USERS, parsed))
-    const target = segmentForUserCount(clamped)
-    const snapped = Math.round(clamped / target.step) * target.step
+    // silently truncating. snapUserCount also guarantees the result lands
+    // inside the segment whose grid it was snapped to.
+    const snapped = snapUserCount(parsed)
     setUserCount(snapped)
     setInputDisplayValue(String(snapped))
   }
@@ -479,7 +477,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
                     setUserCount(s.defaultUsers)
                     setInputDisplayValue(String(s.defaultUsers))
                   }}
-                  className={`px-3 py-1.5 text-xs font-medium ${
+                  title={s.description}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
                     active ? 'bg-primary text-white' : 'bg-surface-raised text-light/70 hover:text-light'
                   }`}
                 >
@@ -500,10 +499,15 @@ export function IngestionEstimator({ onPresetChange }: Props) {
             onChange={handleSliderChange}
             className="flex-1 accent-primary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 rounded"
           />
+          {/* min/max/step track the active segment so the spinner steps on that
+              segment's grid — with min=100 as the step base, every enterprise
+              value was a step mismatch and arrow keys became a no-op after
+              blur re-snapped them. Typing outside the range still works:
+              handleInputBlur clamps across both segments. */}
           <input
             type="number"
-            min={MIN_USERS}
-            max={MAX_USERS}
+            min={activeSegment.minUsers}
+            max={activeSegment.maxUsers}
             step={activeSegment.step}
             value={inputDisplayValue}
             onChange={handleInputChange}
@@ -515,12 +519,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         </div>
         <div className="flex justify-between text-xs text-light/60 mt-1">
           <span>{activeSegment.minUsers.toLocaleString()}</span>
-          <span>
-            {activeSegment.maxUsers.toLocaleString()}
-            {activeSegment.id === 'mid-market' && (
-              <span className="text-light/60"> — type a larger number for enterprise</span>
-            )}
-          </span>
+          <span>{activeSegment.maxUsers.toLocaleString()}</span>
         </div>
       </div>
 

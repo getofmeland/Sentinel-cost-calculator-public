@@ -2,19 +2,59 @@
 import { describe, it, expect } from 'vitest'
 import {
   SEGMENTS, MIN_USERS, MAX_USERS, MXDR_DEFAULT_SOURCE_IDS,
-  segmentForUserCount, getSegment,
+  segmentForUserCount, getSegment, snapUserCount,
 } from '../segments'
 import { LOG_SOURCES } from '../pricing'
 import { MIN_USERS as SHARE_MIN, MAX_USERS as SHARE_MAX } from '../../utils/shareState'
 
 describe('user-count segments', () => {
-  it('covers the whole range with no gap between segments', () => {
-    // A gap would make some user counts unreachable by slider entirely.
-    for (let i = 1; i < SEGMENTS.length; i++) {
-      expect(SEGMENTS[i].minUsers).toBeLessThanOrEqual(SEGMENTS[i - 1].maxUsers)
-    }
+  it('spans the full range end to end', () => {
     expect(MIN_USERS).toBe(SEGMENTS[0].minUsers)
     expect(MAX_USERS).toBe(SEGMENTS[SEGMENTS.length - 1].maxUsers)
+  })
+
+  it('EVERY value a slider can emit derives back to its own segment', () => {
+    // The assertion that should have been here from the start. The original
+    // test asserted the OPPOSITE — that segments must overlap — and so locked
+    // in the defect it should have caught: with enterprise starting at 5,000
+    // and the boundary using a strict >, dragging the enterprise slider to its
+    // own minimum flipped to mid-market, rescaled the track and threw the thumb
+    // across the screen mid-drag.
+    for (const seg of SEGMENTS) {
+      for (let v = seg.minUsers; v <= seg.maxUsers; v += seg.step) {
+        expect(segmentForUserCount(v).id, `${v} escapes ${seg.id}`).toBe(seg.id)
+      }
+      expect(segmentForUserCount(seg.maxUsers).id).toBe(seg.id)
+    }
+  })
+
+  it('leaves no reachable value stranded between segments', () => {
+    // A gap is acceptable only because typing anything inside it snaps into a
+    // real segment. Nothing may snap to a value that then belongs elsewhere.
+    for (let v = MIN_USERS; v <= MAX_USERS; v += 7) {
+      const snapped = snapUserCount(v)
+      const seg = segmentForUserCount(snapped)
+      expect(snapped, `${v} snapped to ${snapped}, outside ${seg.id}`)
+        .toBeGreaterThanOrEqual(seg.minUsers)
+      expect(snapped).toBeLessThanOrEqual(seg.maxUsers)
+    }
+  })
+
+  it('snaps a typed boundary value into a segment rather than out of one', () => {
+    // Typing 5,100 used to pick the enterprise step of 500, snap to 5,000, and
+    // land back in mid-market — out of the grid it had just been snapped to.
+    for (const v of [4_999, 5_000, 5_001, 5_100, 5_499, 5_500]) {
+      const snapped = snapUserCount(v)
+      const seg = segmentForUserCount(snapped)
+      expect(snapped).toBeGreaterThanOrEqual(seg.minUsers)
+      expect(snapped).toBeLessThanOrEqual(seg.maxUsers)
+    }
+  })
+
+  it('keeps a typed value in range at both extremes', () => {
+    expect(snapUserCount(1)).toBe(MIN_USERS)
+    expect(snapUserCount(999_999)).toBe(MAX_USERS)
+    expect(snapUserCount(20_000)).toBe(20_000)
   })
 
   it('shares one set of bounds with the share-link validator', () => {

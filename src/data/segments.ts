@@ -47,9 +47,15 @@ export const SEGMENTS: Segment[] = [
   },
   {
     id: 'enterprise',
+    // Starts ABOVE the mid-market ceiling, not level with it. Sharing the 5,000
+    // endpoint meant the enterprise slider could emit a value that derived back
+    // to mid-market: dragging to the left end flipped the segment, rescaled the
+    // track from 45,000 wide to 4,900, and threw the thumb from the far left to
+    // the far right under the user's hand. Non-overlapping ranges make every
+    // value a slider can produce derive back to itself.
     label: 'Enterprise',
-    description: '5,000 to 50,000 users',
-    minUsers: 5_000,
+    description: '5,500 to 50,000 users',
+    minUsers: 5_500,
     maxUsers: 50_000,
     defaultUsers: 10_000,
     step: 500,
@@ -67,6 +73,23 @@ export const SEGMENTS: Segment[] = [
  */
 export function segmentForUserCount(userCount: number): Segment {
   return userCount > SEGMENTS[0].maxUsers ? SEGMENTS[1] : SEGMENTS[0]
+}
+
+/**
+ * Snap a typed value onto the grid of whichever segment it belongs to, and keep
+ * it inside that segment.
+ *
+ * Snapping to an absolute multiple of the step — `round(v / step) * step` — was
+ * wrong in a way that only showed at the boundary: typing 5,100 chose the
+ * enterprise step of 500, snapped to 5,000, and 5,000 belongs to mid-market. The
+ * value fell out of the segment whose grid it had just been snapped to. Offsets
+ * are measured from the segment's own floor so the result always lands inside.
+ */
+export function snapUserCount(value: number): number {
+  const clamped = Math.min(MAX_USERS, Math.max(MIN_USERS, value))
+  const seg = segmentForUserCount(clamped)
+  const snapped = seg.minUsers + Math.round((clamped - seg.minUsers) / seg.step) * seg.step
+  return Math.min(seg.maxUsers, Math.max(seg.minUsers, snapped))
 }
 
 export function getSegment(id: SegmentId): Segment {
