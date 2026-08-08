@@ -318,9 +318,18 @@ export const LOG_SOURCES: LogSource[] = [
     // Risk detections are exception events, not a per-user stream: a healthy
     // 1,000-user tenant produces tens to low hundreds per day at 1-2 KB each,
     // well under 1 MB/day. The previous [0.1, 0.5] range was 25-50x too high.
+    //
+    // FREE, corrected after audit. The ID Protection connector writes exactly
+    // one table — SecurityAlert — and Microsoft's free-data list carries the
+    // row "Microsoft Entra ID Protection | SecurityAlert (IPC)". The billable
+    // risk tables this source used to charge for (AADUserRiskEvents,
+    // AADRiskyUsers, AADRiskyServicePrincipals, AADServicePrincipalRiskEvents)
+    // are written by the Microsoft ENTRA ID connector, verified against
+    // connectorIndex.ts — so charging for them here also double-counted them
+    // against entra-id.
     gbPer1000UsersRange: [0.002, 0.02],
-    isFree: false,
-    notes: 'Risk detections only — very low volume. SecurityAlert from the connector is free; the risk-event tables are billable',
+    isFree: true,
+    notes: 'Free — the connector writes only SecurityAlert, which is on Microsoft\'s free-data list. The billable risk tables belong to the Entra ID connector',
   },
 
   // ── Microsoft Defender ────────────────────────────────────────────────────
@@ -329,34 +338,64 @@ export const LOG_SOURCES: LogSource[] = [
     label: 'Microsoft Defender for Endpoint',
     group: 'microsoft-defender',
     scaleBy: 'users',
+    // ASSUMPTION, not a Microsoft figure. Two independent audits confirmed
+    // Microsoft publishes NO per-user or per-device volume for advanced hunting
+    // data anywhere — not in the billing pages, the connector docs, or the
+    // official cost estimator, whose stated method is "measure your own tenant".
+    //
+    // Two known weaknesses, both live:
+    //   - The 10.0 ceiling exceeds the only measured figure found for ALL M365
+    //     advanced hunting sources combined (~6.9 MB/user/day, practitioner).
+    //   - The 2.0 floor assumes all ten Device* tables are streamed. Streaming
+    //     is opt-in PER TABLE, so a partial selection — the common case — sits
+    //     well below it.
+    // Volume is also driven by DEVICES, so this implicitly assumes roughly one
+    // onboarded endpoint per user, and MDE-on-servers is modelled nowhere at all.
     gbPer1000UsersRange: [2.0, 10.0],
     isFree: false,
-    notes: 'Raw advanced hunting tables; incidents synced via XDR connector are free',
+    notes: 'Raw advanced hunting tables; incidents synced via XDR connector are free. Billable only if you opt into streaming Device* tables — measure your own tenant before quoting this',
   },
   {
     id: 'mdi',
     label: 'Microsoft Defender for Identity',
     group: 'microsoft-defender',
     scaleBy: 'users',
+    // ASSUMPTION — no Microsoft figure exists. The MDI connector writes only
+    // SecurityAlert, which is free; the billable Identity* tables arrive via
+    // the Defender XDR connector as an opt-in. Volume tracks DOMAIN CONTROLLERS
+    // and directory change rate, not headcount: IdentityQueryEvents is LDAP and
+    // SAMR traffic against DCs, and only IdentityLogonEvents follows users.
     gbPer1000UsersRange: [0.3, 2.0],
     isFree: false,
+    notes: 'Billable only via Defender XDR advanced hunting streaming — the connector itself writes only free SecurityAlert. Scales with domain controllers rather than user count',
   },
   {
     id: 'mdo',
     label: 'Microsoft Defender for Office 365',
     group: 'microsoft-defender',
     scaleBy: 'users',
+    // ASSUMPTION — no Microsoft figure exists. The MDO connector writes only
+    // SecurityAlert, which is free; the billable EmailEvents/EmailUrlInfo
+    // tables arrive via the Defender XDR connector as an opt-in. Volume also
+    // tracks MAIL FLOW, not headcount — EmailEvents is one row per message per
+    // recipient, so two same-sized tenants can differ by an order of magnitude.
     gbPer1000UsersRange: [0.3, 1.5],
     isFree: false,
+    notes: 'Billable only via Defender XDR advanced hunting streaming — the connector itself writes only free SecurityAlert. Scales with mail flow rather than user count',
   },
   {
     id: 'mdca',
     label: 'Microsoft Defender for Cloud Apps',
     group: 'microsoft-defender',
     scaleBy: 'users',
+    // ASSUMPTION — no Microsoft figure exists, and this conflates two unrelated
+    // streams. McasShadowItReporting is native to the MDCA connector and scales
+    // with discovered apps and uploaded firewall feeds, not users; CloudAppEvents
+    // arrives via Defender XDR as an opt-in and duplicates Office 365 activity
+    // already modelled free under o365-audit.
     gbPer1000UsersRange: [0.3, 2.5],
     isFree: false,
-    notes: 'Partially covered with E5 licensing',
+    notes: 'Partially covered with E5 licensing. Shadow IT reporting scales with discovered apps; CloudAppEvents is billable only via Defender XDR streaming and overlaps free OfficeActivity',
   },
   {
     id: 'mdc',

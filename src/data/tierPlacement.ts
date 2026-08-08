@@ -16,7 +16,7 @@ export interface TierPlacementDefault {
 export const TIER_PLACEMENT_DEFAULTS: TierPlacementDefault[] = [
   // Analytics (real-time detection)
   { sourceId: 'entra-id',            recommendedTier: 'analytics',  reason: 'Real-time identity detection: impossible travel, brute force, MFA bypass' },
-  { sourceId: 'entra-id-protection', recommendedTier: 'analytics',  reason: 'Risk signals required for real-time conditional access policy triggers' },
+  { sourceId: 'entra-id-protection', recommendedTier: 'free',       reason: 'SecurityAlert is free to ingest; risk signals still drive conditional access in real time' },
   { sourceId: 'mde',                 recommendedTier: 'analytics',  reason: 'Core EDR telemetry — real-time incident detection and response' },
   { sourceId: 'mdi',                 recommendedTier: 'analytics',  reason: 'Lateral movement and credential attack detection requires low latency' },
   { sourceId: 'mdo',                 recommendedTier: 'analytics',  reason: 'Phishing and BEC detection; alert correlation with identity signals' },

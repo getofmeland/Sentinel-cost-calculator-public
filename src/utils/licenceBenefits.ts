@@ -82,7 +82,12 @@ export function computeLicenceBenefits(
       .filter(
         r =>
           r.logTier === 'analytics' &&
-          r.source.p2Eligible === true,
+          r.source.p2Eligible === true &&
+          // Free volume must not consume the allowance. Without this, free
+          // sources ate P2 capacity that should offset billable SecurityEvent
+          // volume, quietly under-applying the credit. The E5 filter above has
+          // always had this guard; this one was written without it.
+          !r.source.isFree,
       )
       .reduce((s, r) => s + r.gbPerDay, 0),
   )
