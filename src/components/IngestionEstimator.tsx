@@ -18,6 +18,9 @@ import { IngestionSummaryBar } from './IngestionSummaryBar'
 import { TierComparison } from './TierComparison'
 import { TierPlacementTab } from './TierPlacementTab'
 import { LicenceBenefits } from './LicenceBenefits'
+import {
+  SEGMENTS, MIN_USERS, MAX_USERS, MXDR_DEFAULT_SOURCE_IDS, segmentForUserCount,
+} from '../data/segments'
 import { CostSummary } from './CostSummary'
 import { StickyTotalBar } from './StickyTotalBar'
 import { TabNav } from './TabNav'
@@ -42,9 +45,8 @@ const TABS = [
   { id: 'summary', label: 'Summary' },
 ] satisfies { id: TabId; label: string }[]
 
-const MIN_USERS = 100
-const MAX_USERS = 50000
-const STEP = 50
+// Range and granularity now come from the selected segment. The absolute bounds
+// stay here for validating a typed or restored value against both segments.
 
 interface Props {
   onPresetChange?: (id: CompliancePresetId) => void
@@ -63,8 +65,14 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
   // ── Ingestion state ────────────────────────────────────────────────────
   const [userCount, setUserCount] = useState<number>(restored?.userCount ?? 500)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(restored?.selectedIds ?? []))
+  // A first visit opens on the MXDR stack rather than an empty form; a restored
+  // link or saved estimate keeps exactly what it carried, including nothing.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    new Set(restored?.selectedIds ?? MXDR_DEFAULT_SOURCE_IDS),
+  )
   const [inputDisplayValue, setInputDisplayValue] = useState<string>(String(restored?.userCount ?? 500))
+  // Derived, not stored — see segments.ts. One figure, one source of truth.
+  const activeSegment = segmentForUserCount(userCount)
   const [deviceCounts, setDeviceCounts] = useState<Record<string, number>>(restored?.deviceCounts ?? {})
   const [logTiers, setLogTiers] = useState<Record<string, LogTierKey>>(restored?.logTiers ?? {})
   const [retentionDays, setRetentionDays] = useState<Record<string, number>>(restored?.retentionDays ?? {})
@@ -257,8 +265,13 @@ export function IngestionEstimator({ onPresetChange }: Props) {
       setInputDisplayValue(String(userCount))
       return
     }
+    // Typed values are clamped to the WHOLE range, not the active segment, so
+    // typing 20,000 while on mid-market moves you to enterprise rather than
+    // silently truncating to 5,000. Snapping uses the step of whichever segment
+    // the value lands in.
     const clamped = Math.min(MAX_USERS, Math.max(MIN_USERS, parsed))
-    const snapped = Math.round(clamped / STEP) * STEP
+    const target = segmentForUserCount(clamped)
+    const snapped = Math.round(clamped / target.step) * target.step
     setUserCount(snapped)
     setInputDisplayValue(String(snapped))
   }
@@ -446,16 +459,43 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
       {/* User count section */}
       <div className="px-6 py-4 border-b border-white/10 bg-dark">
-        <label htmlFor="user-count-slider" className="block text-sm font-medium text-light mb-3">
-          User count: <span className="text-primary-text font-semibold">{userCount.toLocaleString()}</span>
-        </label>
+        <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
+          <label htmlFor="user-count-slider" className="text-sm font-medium text-light">
+            User count: <span className="text-primary-text font-semibold">{userCount.toLocaleString()}</span>
+          </label>
+          {/* Choosing a segment moves the slider to that segment's default. It
+              deliberately does not touch the selected sources: a size change
+              should not silently discard the estate someone has built up. */}
+          <div className="flex rounded-lg border border-white/15 overflow-hidden" role="group" aria-label="Organisation size">
+            {SEGMENTS.map(s => {
+              const active = s.id === activeSegment.id
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    if (active) return
+                    setUserCount(s.defaultUsers)
+                    setInputDisplayValue(String(s.defaultUsers))
+                  }}
+                  className={`px-3 py-1.5 text-xs font-medium ${
+                    active ? 'bg-primary text-white' : 'bg-surface-raised text-light/70 hover:text-light'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <div className="flex items-center gap-4">
           <input
             id="user-count-slider"
             type="range"
-            min={MIN_USERS}
-            max={MAX_USERS}
-            step={STEP}
+            min={activeSegment.minUsers}
+            max={activeSegment.maxUsers}
+            step={activeSegment.step}
             value={userCount}
             onChange={handleSliderChange}
             className="flex-1 accent-primary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 rounded"
@@ -464,7 +504,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
             type="number"
             min={MIN_USERS}
             max={MAX_USERS}
-            step={STEP}
+            step={activeSegment.step}
             value={inputDisplayValue}
             onChange={handleInputChange}
             onBlur={handleInputBlur}
@@ -474,8 +514,13 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           />
         </div>
         <div className="flex justify-between text-xs text-light/60 mt-1">
-          <span>{MIN_USERS.toLocaleString()}</span>
-          <span>{MAX_USERS.toLocaleString()}</span>
+          <span>{activeSegment.minUsers.toLocaleString()}</span>
+          <span>
+            {activeSegment.maxUsers.toLocaleString()}
+            {activeSegment.id === 'mid-market' && (
+              <span className="text-light/60"> — type a larger number for enterprise</span>
+            )}
+          </span>
         </div>
       </div>
 

@@ -96,7 +96,7 @@ function AppShell() {
             </div>
             <div className="text-right flex-shrink-0">
               <p className="text-xs text-light/60 uppercase tracking-widest">Microsoft Sentinel</p>
-              <p className="text-xs text-light/60">UK mid-market · up to 50,000 users</p>
+              <p className="text-xs text-light/60">UK mid-market &amp; enterprise · up to 50,000 users</p>
             </div>
           </div>
 

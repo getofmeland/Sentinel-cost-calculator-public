@@ -1,4 +1,5 @@
 import { LOG_SOURCES, RetentionStrategy } from '../data/pricing'
+import { MIN_USERS, MAX_USERS } from '../data/segments'
 import { SERVER_WORKLOADS } from '../data/serverWorkloads'
 import { LogTierKey } from '../data/logTiers'
 import { TshirtSize, TSHIRT_SIZES } from '../data/tshirtSizes'
@@ -31,8 +32,10 @@ import { ADI_POOL_VCORES, type AdiPoolVCores } from '../data/pricing'
 /** Bumped when the encoding changes shape. Unknown versions are ignored rather than misread. */
 export const SHARE_SCHEMA_VERSION = 1
 
-export const MIN_USERS = 100
-export const MAX_USERS = 50000
+// Imported from the segment definitions so the slider bounds and the bounds a
+// shared link is validated against cannot drift apart, and re-exported because
+// existing callers take them from here.
+export { MIN_USERS, MAX_USERS }
 
 export interface ShareableState {
   userCount: number

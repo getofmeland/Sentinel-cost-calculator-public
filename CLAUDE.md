@@ -3,7 +3,16 @@
 ## Project Overview
 A React-based cost calculator for Microsoft Sentinel SIEM deployments.
 Target audience: UK mid-market organisations evaluating or optimising their
-Sentinel spend. The user-count slider spans 100 to 50,000.
+Sentinel spend. The user-count slider spans 100 to 50,000, split into two
+segments — SMB/Mid-market (100–5,000) and Enterprise (5,000–50,000) — because a
+single track put the core audience inside its first tenth. The segment is
+DERIVED from the user count in `src/data/segments.ts` and never stored beside
+it; two figures that can disagree is the shape of every serious bug here.
+
+The estimator opens on `MXDR_DEFAULT_SOURCE_IDS`: the Microsoft telemetry a
+managed detection service actually runs on. Network and third-party sources are
+excluded because they vary by estate and assuming them inflates every
+first-visit estimate.
 
 Two modes share one pricing engine:
 - **Estimate** — price a deployment that does not exist yet
