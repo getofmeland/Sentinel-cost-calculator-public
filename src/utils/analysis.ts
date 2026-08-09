@@ -1,10 +1,10 @@
-import { PricingBundle, STATIC_PRICING_BUNDLE, DAYS_PER_MONTH } from '../data/pricing'
+import { PricingBundle, STATIC_PRICING_BUNDLE, DAYS_PER_MONTH, BILLING_RULES } from '../data/pricing'
 import {
   matchTable, guessTable, attributeTable, isAlwaysFreeTable, type TableMatch,
 } from '../data/tableIndex'
 import type { ConnectorAttribution } from '../data/connectorIndex'
 import type { TableGuess } from '../data/tableCatalogue'
-import { computeTierOptions } from './tiers'
+import { computeTierOptions, costAtVolume, tierLabel } from './tiers'
 import { sizeTierOnDailyVolume, type DailySizingResult } from './tierSizing'
 import { transformsForTable, type DcrTransform } from '../data/dcrTransforms'
 import {
@@ -136,6 +136,17 @@ export interface LicensingInput {
   defenderServersP2Enabled: boolean
   /** Machines reporting to this workspace; the P2 allowance is count × 500 MB. */
   serverCount: number
+  /**
+   * The commitment tier the workspace is ALREADY on, in GB/day. Null for
+   * pay-as-you-go.
+   *
+   * Analyse mode assumed pay-as-you-go and hardcoded it. A workspace big enough
+   * to justify an optimisation engagement is usually already committed, and for
+   * those customers the tool overstated current spend AND presented the tier
+   * saving they had already banked as a fresh opportunity — solving a different
+   * customer's problem while appearing confident.
+   */
+  currentCommitmentTierGbPerDay?: number | null
 }
 
 /**
@@ -189,11 +200,18 @@ function allocateGrant(
   return Math.max(0, allowanceGbPerDay) - remaining
 }
 
-/** Rate per GB for a table, by plan. Basic and Auxiliary are flat-rate. */
-function rateForPlan(row: UsageRow, pricing: PricingBundle): number {
+/**
+ * Rate per GB for a table, by plan. Basic and Auxiliary are flat-rate.
+ *
+ * `analyticsRateUsd` is pay-as-you-go on an uncommitted workspace, and the
+ * committed tier's blended effective rate where one is in force. Charging
+ * Analytics rows at PAYG for a customer already on a tier overstated their
+ * current spend — by about 7% at 74 GB/day, and more as volume grows.
+ */
+function rateForPlan(row: UsageRow, pricing: PricingBundle, analyticsRateUsd: number): number {
   if (row.plan === 'Basic') return pricing.basicLogsRateUsd
   if (row.plan === 'Auxiliary') return pricing.auxiliaryLogsRateUsd
-  return pricing.paygRateUsd
+  return analyticsRateUsd
 }
 
 export function analyseUsage(
@@ -249,9 +267,27 @@ export function analyseUsage(
   const p2GrantedGbPerDay = best.p2
   const e5GrantedGbPerDay = best.e5
 
+  // Analytics volume actually billed, once the grants have taken their share.
+  // Needed before costing, because the committed tier's effective rate depends
+  // on it — a tier's blended rate is its daily cost spread over the volume that
+  // reaches it, plus any overage.
+  const netAnalyticsGbPerDay = usage.rows.reduce((sum, r) => (
+    r.plan === 'Analytics'
+      ? sum + Math.max(0, r.billableGbPerDay - Math.min(r.billableGbPerDay, grantedGbByTable.get(r.tableName) ?? 0))
+      : sum
+  ), 0)
+
+  const committedTier = licensing?.currentCommitmentTierGbPerDay
+    ? pricing.commitmentTiers.find(t => t.gbPerDay === licensing.currentCommitmentTierGbPerDay) ?? null
+    : null
+
+  const analyticsRateUsd = committedTier && netAnalyticsGbPerDay > 0
+    ? costAtVolume(committedTier, netAnalyticsGbPerDay) / netAnalyticsGbPerDay
+    : pricing.paygRateUsd
+
   const tables: AnalysedTable[] = usage.rows.map(row => {
     const match = matchTable(row.tableName)
-    const rate = rateForPlan(row, pricing)
+    const rate = rateForPlan(row, pricing, analyticsRateUsd)
     // Granted volume is not billed, so it is not costed and — critically — not
     // offered back as a saving further down. You cannot save on a free gigabyte.
     const grantedGbPerDay = Math.min(
@@ -462,9 +498,21 @@ export function analyseUsage(
   const pastesDiverge = dailyMean > 0 && analyticsToday > 0
     && Math.abs(dailyMean - analyticsToday) / analyticsToday > 0.2
 
+  // What the workspace pays for Analytics volume TODAY. Where a commitment is
+  // already in place that is the tier's daily cost plus overage at the tier
+  // rate — not pay-as-you-go, which the mode used to assume for everyone.
+  const existingTier = committedTier
+
   const options = computeTierOptions(analyticsRemaining, pricing)
   const payg = options.find(o => o.isPayg)!
   const averageRecommended = options.find(o => o.isRecommended && !o.isPayg)
+
+  // The baseline every tier saving is measured against. On a committed
+  // workspace, measuring against pay-as-you-go would invent a saving the
+  // customer banked months ago.
+  const baselineMonthlyUsd = existingTier
+    ? costAtVolume(existingTier, analyticsRemaining) * DAYS_PER_MONTH
+    : payg.monthlyCostUsd
 
   // Day-by-day sizing supersedes the average when we have it, because it is the
   // same arithmetic applied to real data rather than to a single flat number.
@@ -475,8 +523,8 @@ export function analyseUsage(
 
   if (recommended) {
     const saving = dailySizing
-      ? payg.monthlyCostUsd - dailySizing.bestMonthlyUsd
-      : payg.monthlyCostUsd - recommended.monthlyCostUsd
+      ? baselineMonthlyUsd - dailySizing.bestMonthlyUsd
+      : baselineMonthlyUsd - recommended.monthlyCostUsd
     if (saving > 0) {
       const movedNote = analyticsRemaining < analyticsToday
         ? ` — down from ${analyticsToday.toFixed(1)} once the moves above are made`
@@ -501,6 +549,13 @@ export function analyseUsage(
               + `${analyticsGbByDay?.length} days, too few to extrapolate a month from.`
             : ` Sized on the period average — run the optional daily volume query for a tier sized `
               + `against your actual day-to-day variation.`
+      // The 50 GB/day tier is a time-limited preview promotion. Estimate mode
+      // discloses that; Analyse mode did not, so a saving that expires could
+      // land in a client deliverable with no note against it.
+      const promoNote = recommended.tier?.isPreviewPromo
+        ? ` This is a preview promotional tier and Microsoft's published pricing for it runs to `
+          + `${BILLING_RULES.promoTierExpiryDate}. Do not quote it beyond that date without checking.`
+        : ''
       opportunities.push({
         kind: 'commitment-tier',
         title: `Move to the ${recommended.label} commitment tier`,
@@ -508,7 +563,7 @@ export function analyseUsage(
           `Your Analytics-tier ingestion would be ${analyticsRemaining.toFixed(1)} GB/day${movedNote}. `
           + `Committing to ${recommended.label} bills that at the tier rate instead of `
           + `pay-as-you-go. Basic and Auxiliary volume is excluded — commitment tiers do not `
-          + `cover those plans.${variabilityNote}`,
+          + `cover those plans.${promoNote}${variabilityNote}`,
         monthlySavingUsd: saving,
         tables: [],
       })
@@ -583,7 +638,7 @@ export function analyseUsage(
 
     needsInputGbPerDay: round2(needsInput.reduce((a, t) => a + t.billableGbPerDay, 0)),
 
-    currentTierLabel: 'Pay-as-you-go',
+    currentTierLabel: existingTier ? tierLabel(existingTier) : 'Pay-as-you-go',
     recommendedTierLabel: recommended?.label ?? null,
     analyticsGbPerDayAfterMoves: round2(analyticsRemaining),
     p2GrantedGbPerDay: round2(p2GrantedGbPerDay),

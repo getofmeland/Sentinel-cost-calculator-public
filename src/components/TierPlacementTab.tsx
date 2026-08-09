@@ -4,7 +4,7 @@ import { LogTierKey } from '../data/logTiers'
 import { TIER_PLACEMENT_DEFAULTS, TierRecommendation } from '../data/tierPlacement'
 import { DAYS_PER_MONTH } from '../data/pricing'
 import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
-import { fmtGbp, fmtBoth } from '../utils/currency'
+import { fmtCurrency, fmtBoth } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
 
 interface Props {
@@ -46,7 +46,7 @@ export function TierPlacementTab({
   dataLakeDailyCostUsd,
   recommendedAnalyticsRateUsd,
 }: Props) {
-  const { pricing, fxRate } = usePricing()
+  const { pricing, fxRate, eurRate, displayCurrency } = usePricing()
   if (rows.length === 0) {
     return (
       <div className="bg-surface rounded-xl border border-white/10 shadow-sm px-6 py-10 text-center">
@@ -97,7 +97,7 @@ export function TierPlacementTab({
             }
           </p>
           {savingPct > 0 && (
-            <p className="text-sm text-light/50">{fmtGbp(saving, 2, fxRate)}/month saved</p>
+            <p className="text-sm text-light/50">{fmtCurrency(saving, displayCurrency, fxRate, eurRate, 2)}/month saved</p>
           )}
         </div>
       </div>
@@ -143,9 +143,9 @@ export function TierPlacementTab({
                     if (row.source.isFree) {
                       dailyCostDisplay = 'Free'
                     } else if (currentTier === 'data-lake') {
-                      dailyCostDisplay = fmtGbp(row.gbPerDay * pricing.dataLakeRateUsd, 2, fxRate)
+                      dailyCostDisplay = fmtCurrency(row.gbPerDay * pricing.dataLakeRateUsd, displayCurrency, fxRate, eurRate, 2)
                     } else {
-                      dailyCostDisplay = fmtGbp(row.gbPerDay * recommendedAnalyticsRateUsd, 2, fxRate)
+                      dailyCostDisplay = fmtCurrency(row.gbPerDay * recommendedAnalyticsRateUsd, displayCurrency, fxRate, eurRate, 2)
                     }
 
                     return (

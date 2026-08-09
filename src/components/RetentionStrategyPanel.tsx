@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { RetentionStrategy, DATA_LAKE_MIRROR_RETENTION_OPTIONS } from '../data/pricing'
 import { getTierDefinition } from '../data/logTiers'
 import { SourceEstimateRow } from '../utils/ingestion'
-import { fmtGbp, fmtCurrency } from '../utils/currency'
+import { fmtCurrency } from '../utils/currency'
 import { fmtRetentionOption } from '../utils/retention'
 import { usePricing } from '../contexts/PricingContext'
 
@@ -119,8 +119,8 @@ export function RetentionStrategyPanel({
               <tbody className="divide-y divide-white/10">
                 <tr>
                   <td className="px-3 py-2 text-light/60">Monthly retention cost</td>
-                  <td className="px-3 py-2 text-right font-mono text-light">{fmtGbp(extendedMonthly, 2, fxRate)}/mo</td>
-                  <td className="px-3 py-2 text-right font-mono font-bold text-primary-text">{fmtGbp(mirrorMonthly, 2, fxRate)}/mo</td>
+                  <td className="px-3 py-2 text-right font-mono text-light">{fmtCurrency(extendedMonthly, displayCurrency, fxRate, eurRate, 2)}/mo</td>
+                  <td className="px-3 py-2 text-right font-mono font-bold text-primary-text">{fmtCurrency(mirrorMonthly, displayCurrency, fxRate, eurRate, 2)}/mo</td>
                   <td className="px-3 py-2 text-right font-bold text-accent-text">
                     {savingPct > 0 ? `${savingPct}%` : '—'}
                   </td>
@@ -232,7 +232,7 @@ export function RetentionStrategyPanel({
                           </select>
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-light/60">
-                          {r.retentionMonthlyCostUsd > 0 ? fmtGbp(r.retentionMonthlyCostUsd, 2, fxRate) : '—'}
+                          {r.retentionMonthlyCostUsd > 0 ? fmtCurrency(r.retentionMonthlyCostUsd, displayCurrency, fxRate, eurRate, 2) : '—'}
                         </td>
                       </tr>
                     )

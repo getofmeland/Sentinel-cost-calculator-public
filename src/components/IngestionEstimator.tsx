@@ -103,6 +103,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   // ── Savings state (lifted so CostSummary can access them) ──────────────
   const [licence, setLicence] = useState<M365Licence>(restored?.licence ?? 'none')
   const [defenderEnabled, setDefenderEnabled] = useState(restored?.defenderEnabled ?? false)
+  /** Null means "assume every user is licensed", the previous behaviour. */
+  const [licensedSeats, setLicensedSeats] = useState<number | null>(null)
 
   // ── Opt-in data lake compute (graph + notebooks) ───────────────────────
   const [computeConfig, setComputeConfig] = useState<ComputeConfig>(
@@ -201,9 +203,17 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     .filter(r => r.source.p2Eligible === false)
     .reduce((s, r) => s + r.gbPerDay, 0)
 
+  // Microsoft grants the E5 allowance per LICENSED SEAT of a qualifying SKU,
+  // not per account. Passing userCount over-credits every estate where some
+  // staff are on F-series, unlicensed, or are guests and service accounts —
+  // which is most of them — and over-crediting understates the bill.
+  //
+  // Defaults to userCount so an untouched estimate behaves as before; the
+  // moment someone enters a seat count it takes over.
+  const effectiveSeats = licensedSeats ?? userCount
   const licenceBenefits = computeLicenceBenefits(
     summary.rows, summary.analyticsGbPerDay, licence,
-    userCount, defenderEnabled, totalEnrolledServers, pricing,
+    effectiveSeats, defenderEnabled, totalEnrolledServers, pricing,
   )
   const commitmentOptions = computeTierOptions(licenceBenefits.billableAnalyticsGbPerDay, pricing, fxRate)
 
@@ -747,7 +757,10 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         <LicenceBenefits
           rows={summary.rows}
           analyticsGbPerDay={summary.analyticsGbPerDay}
-          userCount={userCount}
+          userCount={effectiveSeats}
+          licensedSeats={licensedSeats}
+          onLicensedSeatsChange={setLicensedSeats}
+          totalUsers={userCount}
           licence={licence}
           onLicenceChange={setLicence}
           defenderEnabled={defenderEnabled}

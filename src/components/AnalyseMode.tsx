@@ -25,6 +25,7 @@ export function AnalyseMode() {
   // only ever be corrected downwards by supplying real licensing.
   const [licensing, setLicensing] = useState<LicensingInput>({
     licence: 'none', licensedSeats: 0, defenderServersP2Enabled: false, serverCount: 0,
+    currentCommitmentTierGbPerDay: null,
   })
 
   const result = useMemo(

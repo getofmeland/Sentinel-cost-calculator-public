@@ -1,6 +1,7 @@
 import { LogSource, RetentionStrategy, DATA_LAKE_MIRROR_RETENTION_OPTIONS } from '../data/pricing'
 import { LogTierKey, getTierDefinition } from '../data/logTiers'
-import { fmtGbp } from '../utils/currency'
+import { fmtCurrency } from '../utils/currency'
+import { usePricing } from '../contexts/PricingContext'
 import { fmtRetentionOption } from '../utils/retention'
 import { TshirtSize, TSHIRT_SIZES } from '../data/tshirtSizes'
 import { TableInfoPopover } from './TableInfoPopover'
@@ -48,6 +49,7 @@ export function SourceRow({
   onManualGbChange,
   onSizeChange,
 }: SourceRowProps) {
+  const { fxRate, eurRate, displayCurrency } = usePricing()
   const checkboxId = `source-${source.id}`
   const tierDef = getTierDefinition(logTier)
   const activeVariantId = selectedVariantId ?? source.defaultVariantId
@@ -286,7 +288,7 @@ export function SourceRow({
                 </select>
                 {retentionMonthlyCostUsd > 0 && (
                   <span className="text-[10px] font-medium text-warning">
-                    +{fmtGbp(retentionMonthlyCostUsd, 2)}/mo
+                    +{fmtCurrency(retentionMonthlyCostUsd, displayCurrency, fxRate, eurRate, 2)}/mo
                   </span>
                 )}
               </div>

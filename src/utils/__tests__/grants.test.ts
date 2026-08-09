@@ -222,3 +222,68 @@ describe('grant ordering takes whichever assignment covers more', () => {
     }
   })
 })
+
+describe('a workspace already on a commitment tier', () => {
+  // Analyse mode hardcoded currentTierLabel: 'Pay-as-you-go' and costed every
+  // Analytics gigabyte at the PAYG rate. A customer big enough to justify an
+  // optimisation engagement is usually already committed, so for them the tool
+  // overstated current spend AND offered back the tier saving they had banked
+  // months ago — confidently solving a different customer's problem.
+
+  const paste = `TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${mb(120)}`
+  const committed = (gbPerDay: number | null): LicensingInput => ({
+    licence: 'none', licensedSeats: 0, defenderServersP2Enabled: false, serverCount: 0,
+    currentCommitmentTierGbPerDay: gbPerDay,
+  })
+
+  it('reports the tier the customer is actually on', () => {
+    expect(analyse(paste, committed(100)).currentTierLabel).toBe('100 GB/day')
+    expect(analyse(paste, committed(null)).currentTierLabel).toBe('Pay-as-you-go')
+  })
+
+  it('costs current spend at the tier rate, not pay-as-you-go', () => {
+    const onTier = analyse(paste, committed(100))
+    const onPayg = analyse(paste, committed(null))
+    expect(onTier.currentMonthlyUsd).toBeLessThan(onPayg.currentMonthlyUsd)
+
+    // 100 GB/day tier plus 20 GB of overage at that tier's effective rate.
+    const tier = STATIC_PRICING_BUNDLE.commitmentTiers.find(t => t.gbPerDay === 100)!
+    const expected = (tier.dailyCostUsd + 20 * tier.effectiveRateUsd) * DAYS_PER_MONTH
+    expect(onTier.currentMonthlyUsd).toBeCloseTo(expected, 0)
+  })
+
+  it('does not offer back a saving the customer already banked', () => {
+    // Sitting on exactly the right tier means there is nothing to move to, and
+    // the PAYG baseline would have invented the entire difference as a finding.
+    const onTier = analyse(paste, committed(100))
+    const onPayg = analyse(paste, committed(null))
+    const tierSaving = (r: typeof onTier) =>
+      r.opportunities.find(o => o.kind === 'commitment-tier')?.monthlySavingUsd ?? 0
+    expect(tierSaving(onTier)).toBeLessThan(tierSaving(onPayg))
+  })
+
+  it('still finds a genuine saving when the customer is on the wrong tier', () => {
+    // Committed at 5,000 GB/day while sending 120. Stepping down is real money.
+    const r = analyse(paste, committed(5000))
+    const opp = r.opportunities.find(o => o.kind === 'commitment-tier')
+    expect(opp?.monthlySavingUsd ?? 0).toBeGreaterThan(0)
+  })
+
+  it('keeps the headline honest against the tier baseline', () => {
+    const r = analyse(paste, committed(100))
+    expect(r.totalAddressableSavingUsd).toBeLessThanOrEqual(r.currentMonthlyUsd)
+  })
+})
+
+describe('promotional tiers are disclosed', () => {
+  it('names the expiry when a preview promo tier is recommended', () => {
+    // The 50 GB/day tier is a time-limited preview. Estimate mode said so;
+    // Analyse mode did not, so an expiring saving could reach a deliverable.
+    const r = analyse(`TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${mb(60)}`, NO_LICENCE)
+    const opp = r.opportunities.find(o => o.kind === 'commitment-tier')
+    if (opp?.title.includes('50 GB/day')) {
+      expect(opp.detail).toMatch(/promotional tier/i)
+      expect(opp.detail).toMatch(/2027-03-31/)
+    }
+  })
+})

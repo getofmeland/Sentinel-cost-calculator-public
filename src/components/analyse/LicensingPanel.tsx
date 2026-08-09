@@ -1,4 +1,5 @@
 import { LICENCES, type M365Licence } from '../../data/licenceBenefits'
+import { STATIC_PRICING_BUNDLE } from '../../data/pricing'
 import type { LicensingInput } from '../../utils/analysis'
 
 interface Props {
@@ -33,6 +34,31 @@ export function LicensingPanel({ value, onChange }: Props) {
           and will overstate what you actually pay.
         </p>
       </div>
+
+      {/* Analyse mode assumed pay-as-you-go for everyone. A workspace big
+          enough to justify an optimisation engagement is usually already
+          committed — for those customers the tool overstated current spend AND
+          offered back the tier saving they had banked months ago. */}
+      <label className="block">
+        <span className="block text-xs font-medium text-light/80 mb-1">
+          Commitment tier already in place
+        </span>
+        <select
+          value={value.currentCommitmentTierGbPerDay ?? ''}
+          onChange={e => set('currentCommitmentTierGbPerDay',
+            e.target.value === '' ? null : Number(e.target.value))}
+          className="w-full sm:w-56 px-2 py-1.5 text-sm rounded-md bg-surface-raised border border-white/15 text-light focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="">Pay-as-you-go (no commitment)</option>
+          {STATIC_PRICING_BUNDLE.commitmentTiers.map(t => (
+            <option key={t.gbPerDay} value={t.gbPerDay}>{t.gbPerDay} GB/day</option>
+          ))}
+        </select>
+        <span className="block text-[11px] text-light/60 mt-1">
+          Leave as pay-as-you-go only if you genuinely have no commitment. Getting this
+          wrong overstates your current bill and invents a saving you already have.
+        </span>
+      </label>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">

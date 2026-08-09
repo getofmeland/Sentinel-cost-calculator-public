@@ -288,7 +288,7 @@ export function CostSummary({
             {/* M365 E5 data grant saving */}
             <tr>
               <td className="px-4 py-2.5 text-light/70">
-                M365 E5 data grant (Entra ID &amp; MDCA)
+                M365 E5 data grant (Entra ID &amp; Defender)
                 {e5SavedMonthlyUsd === 0 && (
                   <span className="ml-1.5 text-[10px] text-light/60">
                     {licenceLabel === 'None / M365 E1' || licenceLabel === 'Microsoft 365 E3'

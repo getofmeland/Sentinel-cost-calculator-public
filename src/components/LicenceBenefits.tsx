@@ -10,13 +10,19 @@ import {
 } from '../data/licenceBenefits'
 import { computeLicenceBenefits } from '../utils/licenceBenefits'
 import { SourceEstimateRow } from '../utils/ingestion'
-import { fmtGbp } from '../utils/currency'
+import { fmtCurrency } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
 
 interface Props {
   rows: SourceEstimateRow[]
   analyticsGbPerDay: number
+  /** Seats the grant maths actually uses — licensedSeats when stated, else totalUsers */
   userCount: number
+  /** Null when the user has not stated a seat count */
+  licensedSeats: number | null
+  onLicensedSeatsChange: (n: number | null) => void
+  /** Total user count, shown as the fallback the grant is assuming */
+  totalUsers: number
   licence: M365Licence
   onLicenceChange: (l: M365Licence) => void
   defenderEnabled: boolean
@@ -94,6 +100,9 @@ export function LicenceBenefits({
   rows,
   analyticsGbPerDay,
   userCount,
+  licensedSeats,
+  onLicensedSeatsChange,
+  totalUsers,
   licence,
   onLicenceChange,
   defenderEnabled,
@@ -102,7 +111,7 @@ export function LicenceBenefits({
   windowsServerGbPerDay,
   linuxServerGbPerDay,
 }: Props) {
-  const { pricing, fxRate } = usePricing()
+  const { pricing, fxRate, eurRate, displayCurrency } = usePricing()
   const [alwaysFreeExpanded, setAlwaysFreeExpanded] = useState(false)
 
   const benefits = computeLicenceBenefits(
@@ -167,6 +176,36 @@ export function LicenceBenefits({
             />
           ))}
         </div>
+        {/* The grant is per LICENSED SEAT of a qualifying SKU. Assuming every
+            user is licensed over-credits any estate with F-series staff,
+            contractors, guests or service accounts — and over-crediting
+            understates the bill. */}
+        {(licence === 'e5' || licence === 'e5-security') && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label htmlFor="licensed-seats" className="text-xs text-light/80">
+              Licensed seats
+            </label>
+            <input
+              id="licensed-seats"
+              type="number"
+              min={0}
+              max={totalUsers}
+              step={10}
+              value={licensedSeats ?? ''}
+              placeholder={String(totalUsers)}
+              onChange={e => {
+                const v = e.target.value.trim()
+                onLicensedSeatsChange(v === '' ? null : Math.max(0, Number(v) || 0))
+              }}
+              className="w-28 px-2 py-1 text-sm rounded-md bg-surface border border-white/15 text-light font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <span className="text-[11px] text-light/60">
+              {licensedSeats === null
+                ? `Assuming all ${totalUsers.toLocaleString()} users are licensed. Enter the real seat count if fewer are.`
+                : `${licensedSeats.toLocaleString()} of ${totalUsers.toLocaleString()} users. Guests, service accounts and F-series seats earn no grant.`}
+            </span>
+          </div>
+        )}
         {selectedLicence.includes.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3" aria-label="Included products">
             {selectedLicence.includes.map(product => (
@@ -234,9 +273,11 @@ export function LicenceBenefits({
                   Active
                 </span>
               </div>
-              <p className="text-xs text-light/50 mb-4">
-                {E5_DATA_GRANT_GB_PER_USER_PER_DAY * 1000} MB/user/day billing credit applied to
-                Entra ID and MDCA Analytics-tier ingestion only.
+              <p className="text-xs text-light/60 mb-4">
+                {E5_DATA_GRANT_GB_PER_USER_PER_DAY * 1000} MB/user/day billing credit, applied to
+                Entra ID plus the Defender advanced hunting data from Endpoint, Identity, Office 365
+                and Cloud Apps — Analytics tier only. Microsoft counts LICENSED SEATS of a
+                qualifying SKU, not total accounts.
               </p>
 
               <div className="flex flex-col lg:flex-row gap-4">
@@ -287,7 +328,7 @@ export function LicenceBenefits({
                       Monthly saving
                     </p>
                     <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.e5SavedMonthlyUsd > 0 ? 'text-light' : 'text-light/60'}`}>
-                      {benefits.e5SavedMonthlyUsd > 0 ? fmtGbp(benefits.e5SavedMonthlyUsd, 0, fxRate) : '—'}
+                      {benefits.e5SavedMonthlyUsd > 0 ? fmtCurrency(benefits.e5SavedMonthlyUsd, displayCurrency, fxRate, eurRate, 0) : '—'}
                     </p>
                     {benefits.e5SavedMonthlyUsd > 0 && (
                       <p className="text-[10px] text-light/50 mt-1">
@@ -309,7 +350,7 @@ export function LicenceBenefits({
                 </span>
               </div>
               <p className="text-xs text-light/60">
-                Select M365 E5 or M365 E3 + E5 Security above to activate the 5 MB/user/day billing credit for Entra ID and MDCA.
+                Select M365 E5 or M365 E3 + E5 Security above to activate the 5 MB/user/day billing credit.
               </p>
             </div>
           )}
@@ -412,7 +453,7 @@ export function LicenceBenefits({
                       </p>
                       <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.defenderServersSavedMonthlyUsd > 0 ? 'text-light' : 'text-light/60'}`}>
                         {benefits.defenderServersSavedMonthlyUsd > 0
-                          ? fmtGbp(benefits.defenderServersSavedMonthlyUsd, 0, fxRate)
+                          ? fmtCurrency(benefits.defenderServersSavedMonthlyUsd, displayCurrency, fxRate, eurRate, 0)
                           : '—'}
                       </p>
                       {benefits.defenderServersSavedMonthlyUsd > 0 && (
@@ -453,7 +494,7 @@ export function LicenceBenefits({
                   Total monthly saving
                 </p>
                 <p className={`text-2xl font-bold font-mono mt-1 leading-none ${benefits.totalSavedMonthlyUsd > 0 ? 'text-light' : 'text-light/60'}`}>
-                  {benefits.totalSavedMonthlyUsd > 0 ? fmtGbp(benefits.totalSavedMonthlyUsd, 0, fxRate) : '—'}
+                  {benefits.totalSavedMonthlyUsd > 0 ? fmtCurrency(benefits.totalSavedMonthlyUsd, displayCurrency, fxRate, eurRate, 0) : '—'}
                 </p>
               </div>
 
@@ -477,8 +518,12 @@ export function LicenceBenefits({
       <div className="px-6 py-3 border-t border-white/10 text-[11px] text-light/60 leading-relaxed">
         All data is still ingested into Sentinel for full detection and investigation coverage.
         Billing credits reduce the Analytics GB charged — they do not affect total ingestion volume.
-        E5 data grant applies only to Entra ID and MDCA sources on the Analytics tier.
+        E5 data grant covers Entra ID and the Defender advanced hunting sources on the Analytics tier.
+        It is granted per licensed seat of a qualifying SKU, not per account.
         Defender for Servers P2 credit applies to Windows Security Events only — Linux Syslog is not eligible.
+        The credit is not free: Plan 2 is a paid Defender for Cloud plan charged per server per month,
+        so weigh the credit shown here against that licence cost before treating it as a saving. It must
+        also be enabled on the <em>workspace</em>, not only on the subscription.
       </div>
     </div>
   )
