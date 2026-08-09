@@ -7,6 +7,11 @@ import type { TableGuess } from '../data/tableCatalogue'
 import { computeTierOptions } from './tiers'
 import { sizeTierOnDailyVolume, type DailySizingResult } from './tierSizing'
 import { transformsForTable, type DcrTransform } from '../data/dcrTransforms'
+import {
+  isP2Eligible, isE5Eligible,
+  P2_GRANT_MB_PER_SERVER_PER_DAY, E5_GRANT_MB_PER_LICENSED_USER_PER_DAY,
+} from '../data/grantEligibleTables'
+import { E5_QUALIFYING_LICENCES, type M365Licence } from '../data/licenceBenefits'
 import { round2 } from './round'
 import type { ParsedUsage, UsageRow } from './usageParser'
 
@@ -58,6 +63,8 @@ export interface AnalysedTable extends UsageRow {
   attribution: ConnectorAttribution | null
   /** Current monthly cost at the rate for its plan */
   monthlyCostUsd: number
+  /** Volume covered by a free-ingestion grant, and therefore not billed */
+  grantedGbPerDay: number
   /** Set when moving this table to a cheaper plan would save money */
   potentialSavingUsd: number
   status: 'ok' | 'move-to-lake' | 'move-to-basic' | 'should-be-free' | 'needs-input' | 'unclassified'
@@ -93,6 +100,12 @@ export interface AnalysisResult {
   recommendedTierLabel: string | null
   /** Analytics GB/day remaining once the recommended moves are made */
   analyticsGbPerDayAfterMoves: number
+  /** Volume absorbed by Defender for Servers P2, and the credit it is worth */
+  p2GrantedGbPerDay: number
+  p2GrantSavedMonthlyUsd: number
+  /** Volume absorbed by the Microsoft 365 E5 data grant */
+  e5GrantedGbPerDay: number
+  e5GrantSavedMonthlyUsd: number
   /** Present only when the optional daily volume query was supplied AND usable */
   dailySizing: DailySizingResult | null
   /**
@@ -108,6 +121,61 @@ export interface AnalysisResult {
    * and Microsoft publishes no reduction percentages to borrow.
    */
   offeredTransforms: OfferedTransform[]
+}
+
+/** What the workspace is licensed for. Absent, no grant is applied at all. */
+export interface LicensingInput {
+  /** Qualifying M365 licence, or 'none' */
+  licence: M365Licence
+  /**
+   * LICENSED SEATS of a qualifying SKU — not headcount and not total accounts.
+   * A tenant with 300 accounts, 70 staff and 100 E5 licences earns 100 × 5 MB.
+   * Taking either larger number over-credits and understates the bill.
+   */
+  licensedSeats: number
+  defenderServersP2Enabled: boolean
+  /** Machines reporting to this workspace; the P2 allowance is count × 500 MB. */
+  serverCount: number
+}
+
+/**
+ * Allocate a grant pool across the tables it covers, largest first.
+ *
+ * Microsoft applies both allowances as a workspace-level POOL — "calculated
+ * across all machines in a subscription, not enforced per machine" — so which
+ * specific gigabytes it absorbs does not affect the total. It does affect
+ * everything downstream: a table already covered must not be offered as a
+ * saving, must not be credited again by the other grant, and must not count
+ * toward the commitment tier. So the allocation is tracked per table rather
+ * than netted off a total.
+ *
+ * Mutates `credited` and returns the gigabytes this grant absorbed.
+ */
+function allocateGrant(
+  rows: UsageRow[],
+  isEligible: (table: string) => boolean,
+  allowanceGbPerDay: number,
+  credited: Map<string, number>,
+): number {
+  let remaining = Math.max(0, allowanceGbPerDay)
+  const byLargest = [...rows].sort((a, b) => b.billableGbPerDay - a.billableGbPerDay)
+
+  for (const row of byLargest) {
+    if (remaining <= 0) break
+    // Grants apply to Analytics-plan ingestion. Basic and Auxiliary are billed
+    // on their own flat meters and are not what either offer covers.
+    if (row.plan !== 'Analytics') continue
+    if (!isEligible(row.tableName)) continue
+
+    const already = credited.get(row.tableName) ?? 0
+    const available = row.billableGbPerDay - already
+    if (available <= 0) continue
+
+    const take = Math.min(available, remaining)
+    credited.set(row.tableName, already + take)
+    remaining -= take
+  }
+  return Math.max(0, allowanceGbPerDay) - remaining
 }
 
 /** Rate per GB for a table, by plan. Basic and Auxiliary are flat-rate. */
@@ -126,11 +194,42 @@ export function analyseUsage(
    * before — this only ever adds precision, never changes the default.
    */
   analyticsGbByDay?: number[],
+  licensing?: LicensingInput,
 ): AnalysisResult {
+  // ── Free-ingestion grants, applied before anything is costed ─────────────
+  //
+  // Order matters and is deliberate. Defender for Servers P2 goes first because
+  // its pool is far larger per unit (500 MB per server against 5 MB per seat)
+  // and its eligible set is narrow, so spending it first leaves the broader E5
+  // pool for tables only E5 covers. Three tables sit in both lists, which is
+  // exactly why allocation is tracked per table.
+  const grantedGbByTable = new Map<string, number>()
+
+  const p2AllowanceGbPerDay = licensing?.defenderServersP2Enabled
+    ? Math.max(0, licensing.serverCount) * (P2_GRANT_MB_PER_SERVER_PER_DAY / 1000)
+    : 0
+  const p2GrantedGbPerDay = allocateGrant(
+    usage.rows, isP2Eligible, p2AllowanceGbPerDay, grantedGbByTable,
+  )
+
+  const e5AllowanceGbPerDay = licensing && E5_QUALIFYING_LICENCES.has(licensing.licence)
+    ? Math.max(0, licensing.licensedSeats) * (E5_GRANT_MB_PER_LICENSED_USER_PER_DAY / 1000)
+    : 0
+  const e5GrantedGbPerDay = allocateGrant(
+    usage.rows, isE5Eligible, e5AllowanceGbPerDay, grantedGbByTable,
+  )
+
   const tables: AnalysedTable[] = usage.rows.map(row => {
     const match = matchTable(row.tableName)
     const rate = rateForPlan(row, pricing)
-    const monthlyCostUsd = row.billableGbPerDay * rate * DAYS_PER_MONTH
+    // Granted volume is not billed, so it is not costed and — critically — not
+    // offered back as a saving further down. You cannot save on a free gigabyte.
+    const grantedGbPerDay = Math.min(
+      row.billableGbPerDay,
+      grantedGbByTable.get(row.tableName) ?? 0,
+    )
+    const netBillableGbPerDay = Math.max(0, row.billableGbPerDay - grantedGbPerDay)
+    const monthlyCostUsd = netBillableGbPerDay * rate * DAYS_PER_MONTH
 
     let status: AnalysedTable['status'] = 'ok'
     let potentialSavingUsd = 0
@@ -152,10 +251,14 @@ export function analyseUsage(
       // publishes "Auxiliary / Lake table support: No" for them. Recommending
       // a move would be advice the customer physically cannot follow.
       && match.lakeCapable
+      // Nothing left to move: the grant already covers this table in full.
+      && netBillableGbPerDay > 0
     ) {
       status = 'move-to-lake'
+      // Measured on NET volume. A granted gigabyte is already free, so moving
+      // it to a cheaper tier saves nothing and must not be offered as if it did.
       potentialSavingUsd =
-        row.billableGbPerDay * (pricing.paygRateUsd - pricing.dataLakeRateUsd) * DAYS_PER_MONTH
+        netBillableGbPerDay * (pricing.paygRateUsd - pricing.dataLakeRateUsd) * DAYS_PER_MONTH
     } else if (
       match.recommendation === 'basic'
       && row.plan === 'Analytics'
@@ -165,16 +268,18 @@ export function analyseUsage(
       // entry can only reach 'basic' with basicCapable true, but the engine
       // must not trust the catalogue to have got that right.
       && match.basicCapable
+      && netBillableGbPerDay > 0
     ) {
       status = 'move-to-basic'
       potentialSavingUsd =
-        row.billableGbPerDay * (pricing.paygRateUsd - pricing.basicLogsRateUsd) * DAYS_PER_MONTH
+        netBillableGbPerDay * (pricing.paygRateUsd - pricing.basicLogsRateUsd) * DAYS_PER_MONTH
     }
 
     return {
       ...row, match,
       guess: match ? null : guessTable(row.tableName),
       attribution: match ? null : attributeTable(row.tableName),
+      grantedGbPerDay: round2(grantedGbPerDay),
       monthlyCostUsd, potentialSavingUsd, status,
     }
   })
@@ -259,7 +364,14 @@ export function analyseUsage(
   // needs once the moves above are made, and promise a saving on gigabytes that
   // have already been counted as saved. Basic moves leave the Analytics pool
   // just as Lake moves do — commitment tiers cover neither plan.
-  const analyticsToday = usage.analyticsBillableGbPerDay
+  // Granted volume leaves the pool too. A commitment tier is bought against
+  // what you are BILLED for, so sizing one against gigabytes Microsoft is
+  // already giving away would recommend a larger tier than the workspace needs.
+  const grantedAnalyticsGbPerDay = tables
+    .filter(t => t.plan === 'Analytics')
+    .reduce((a, t) => a + t.grantedGbPerDay, 0)
+
+  const analyticsToday = Math.max(0, usage.analyticsBillableGbPerDay - grantedAnalyticsGbPerDay)
   const analyticsRemaining = Math.max(
     0,
     analyticsToday
@@ -444,6 +556,10 @@ export function analyseUsage(
     currentTierLabel: 'Pay-as-you-go',
     recommendedTierLabel: recommended?.label ?? null,
     analyticsGbPerDayAfterMoves: round2(analyticsRemaining),
+    p2GrantedGbPerDay: round2(p2GrantedGbPerDay),
+    p2GrantSavedMonthlyUsd: round2(p2GrantedGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH),
+    e5GrantedGbPerDay: round2(e5GrantedGbPerDay),
+    e5GrantSavedMonthlyUsd: round2(e5GrantedGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH),
     dailySizing,
     dailyPasteDiverges: pastesDiverge,
     // Deliberately outside the ranked opportunities and outside the headline.

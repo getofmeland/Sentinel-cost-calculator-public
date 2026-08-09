@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { QueryPanel } from './analyse/QueryPanel'
 import { UsagePasteBox } from './analyse/UsagePasteBox'
 import { DailyVolumePanel } from './analyse/DailyVolumePanel'
+import { LicensingPanel } from './analyse/LicensingPanel'
 import { SavingsReport } from './analyse/SavingsReport'
-import { analyseUsage } from '../utils/analysis'
+import { analyseUsage, type LicensingInput } from '../utils/analysis'
 import { usePricing } from '../contexts/PricingContext'
 import type { ParsedUsage } from '../utils/usageParser'
 import type { ParsedDailyVolume } from '../utils/dailyVolumeParser'
@@ -20,10 +21,15 @@ export function AnalyseMode() {
   const { pricing } = usePricing()
   const [parsed, setParsed] = useState<ParsedUsage | null>(null)
   const [daily, setDaily] = useState<ParsedDailyVolume | null>(null)
+  // Defaults grant nothing, so an untouched analysis shows gross cost and can
+  // only ever be corrected downwards by supplying real licensing.
+  const [licensing, setLicensing] = useState<LicensingInput>({
+    licence: 'none', licensedSeats: 0, defenderServersP2Enabled: false, serverCount: 0,
+  })
 
   const result = useMemo(
-    () => (parsed ? analyseUsage(parsed, pricing, daily?.analyticsGbByDay) : null),
-    [parsed, daily, pricing],
+    () => (parsed ? analyseUsage(parsed, pricing, daily?.analyticsGbByDay, licensing) : null),
+    [parsed, daily, licensing, pricing],
   )
 
   return (
@@ -45,6 +51,7 @@ export function AnalyseMode() {
       />
       {/* Offered only once there is something to improve — an optional second
           query in front of a first-time user is just another obstacle. */}
+      {parsed && <LicensingPanel value={licensing} onChange={setLicensing} />}
       {parsed && <DailyVolumePanel parsed={daily} onParsed={setDaily} />}
 
       {result

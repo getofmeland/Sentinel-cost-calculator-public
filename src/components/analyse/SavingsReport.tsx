@@ -164,6 +164,38 @@ export function SavingsReport({ result }: Props) {
         </div>
       )}
 
+      {/* ── Free-ingestion grants already applied ────────────────────────
+          Shown explicitly rather than folded silently into the totals: a
+          number that quietly got smaller is not something a consultant can
+          defend in front of a client. */}
+      {(result.p2GrantedGbPerDay > 0 || result.e5GrantedGbPerDay > 0) && (
+        <div className="rounded-xl border border-white/10 bg-surface px-6 py-4">
+          <p className="text-sm font-semibold text-light">Free ingestion already applied</p>
+          <p className="text-xs text-light/60 mt-0.5 max-w-2xl">
+            Microsoft covers this volume, so it is excluded from the costs above and from the
+            commitment tier sizing. It is not a saving to go and make — you already have it.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {result.p2GrantedGbPerDay > 0 && (
+              <li className="text-xs text-light/80">
+                <span className="font-mono text-primary-text">
+                  {result.p2GrantedGbPerDay.toLocaleString('en-GB', { maximumFractionDigits: 2 })} GB/day
+                </span>{' '}
+                under Defender for Servers Plan 2 — worth {money(result.p2GrantSavedMonthlyUsd)}/mo
+              </li>
+            )}
+            {result.e5GrantedGbPerDay > 0 && (
+              <li className="text-xs text-light/80">
+                <span className="font-mono text-primary-text">
+                  {result.e5GrantedGbPerDay.toLocaleString('en-GB', { maximumFractionDigits: 2 })} GB/day
+                </span>{' '}
+                under the Microsoft 365 E5 data grant — worth {money(result.e5GrantSavedMonthlyUsd)}/mo
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
       {/* ── Filter at ingestion ─────────────────────────────────────────
           Deliberately below the ranked list and carrying no saving figure.
           Removing the data beats repricing it, but how much a filter removes
