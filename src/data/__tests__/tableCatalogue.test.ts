@@ -4,6 +4,16 @@ import { matchTable, guessTable, isAlwaysFreeTable, attributeTable, indexedTable
 import { publishedPlanSupport, verifiedTableCount } from '../tablePlanSupport'
 import { attributedTableCount } from '../connectorIndex'
 import { P2_ELIGIBLE_TABLES, E5_ELIGIBLE_TABLES } from '../grantEligibleTables'
+import { SOURCE_TABLE_MAPPINGS } from '../sentinelTables'
+
+/** Every table name the index can resolve, from both routes into it. */
+function allIndexedTables(): string[] {
+  const out = new Set<string>()
+  for (const m of Object.values(SOURCE_TABLE_MAPPINGS))
+    for (const t of m.tables) if (!t.name.includes('{')) out.add(t.name)
+  for (const e of TABLE_CATALOGUE) out.add(e.name)
+  return [...out]
+}
 
 /**
  * These cover the attributes that change what the tool *advises*, not merely
@@ -276,6 +286,34 @@ describe('every table a real tenant reported as unrecognised', () => {
       const m = matchTable(name)!
       if (m.recommendation === 'data-lake') expect(m.lakeCapable).toBe(true)
       if (m.recommendation === 'basic') expect(m.basicCapable).toBe(true)
+    }
+  })
+})
+
+describe('no code path assumes plan capability', () => {
+  // The estimator's source mapping was the one route that bypassed the verified
+  // snapshot: it defaulted lakeCapable to TRUE while the adjacent line already
+  // consulted publishedPlanSupport for DCR support. AzureNetworkAnalytics_CL is
+  // claimed only by nsg-flow, which recommends the Lake tier, so a high-volume
+  // legacy table was offered a move nobody had checked was possible.
+  it('never claims Lake support for a table nothing has verified', () => {
+    const assumed: string[] = []
+    for (const t of allIndexedTables()) {
+      const m = matchTable(t)!
+      if (!m.lakeCapable) continue
+      const verified = publishedPlanSupport(t) || TABLE_CATALOGUE.find(
+        e => e.name.toLowerCase() === t.toLowerCase(),
+      )
+      if (!verified) assumed.push(t)
+    }
+    expect(assumed).toEqual([])
+  })
+
+  it('never recommends a move for a table with no verified capability', () => {
+    for (const t of allIndexedTables()) {
+      const m = matchTable(t)!
+      if (m.recommendation === 'data-lake') expect(m.lakeCapable, `${t}`).toBe(true)
+      if (m.recommendation === 'basic') expect(m.basicCapable, `${t}`).toBe(true)
     }
   })
 })

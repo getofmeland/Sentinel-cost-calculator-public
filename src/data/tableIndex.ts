@@ -102,17 +102,46 @@ function buildIndex(): Map<string, TableMatch> {
     const agreed = recommendations.length === 1
     const catalogued = lookupTable(key)
 
+    const lakeCapable = catalogued?.lakeCapable ?? publishedPlanSupport(key)?.lake ?? false
+    const basicCapable = catalogued?.basicCapable ?? publishedPlanSupport(key)?.basic ?? false
+
+    // The estimator recommends a tier per SOURCE; capability is a property of
+    // the TABLE. Where they conflict the table wins, and the recommendation
+    // falls back to Analytics — you cannot move what cannot be moved.
+    //
+    // The engine refuses impossible moves anyway, so this is belt and braces —
+    // but leaving the contradiction in the data means the UI can render
+    // "Move to Data Lake" beside a table that cannot, and a reader has no way
+    // to know the engine quietly disagreed.
+    const sourceRecommendation = agreed ? recommendations[0] : null
+    const recommendation = sourceRecommendation === 'data-lake' && !lakeCapable
+      ? 'analytics'
+      : sourceRecommendation === 'basic' && !basicCapable
+        ? 'analytics'
+        : sourceRecommendation
+
     index.set(key, {
       table: key,
       sourceIds,
-      recommendation: agreed ? recommendations[0] : null,
+      recommendation,
       ambiguousButAgreed: agreed && sourceIds.length > 1,
       needsUserInput: !agreed,
       reason: agreed ? (reasonBySource.get(sourceIds[0]) ?? null) : null,
       // Free only if every claimant is free; a mixed table is billable.
       isFree: sourceIds.every(id => freeSourceIds.has(id)),
-      lakeCapable: catalogued?.lakeCapable ?? true,
-      basicCapable: catalogued?.basicCapable ?? false,
+      // Consult the verified snapshot before falling back, and fall back to
+      // FALSE rather than true.
+      //
+      // This path — tables known only through the estimator's source mapping —
+      // was the one place the "unverified is not the same as supported" rule
+      // did not reach. It defaulted lakeCapable to true while the line below it
+      // was already asking publishedPlanSupport for DCR support, in the same
+      // object literal. AzureNetworkAnalytics_CL is claimed only by nsg-flow,
+      // which recommends the Lake tier, so a high-volume legacy table was being
+      // offered a move whose feasibility nobody had checked. That is precisely
+      // the failure that put sixteen impossible recommendations into a release.
+      lakeCapable: catalogued?.lakeCapable ?? publishedPlanSupport(key)?.lake ?? false,
+      basicCapable: catalogued?.basicCapable ?? publishedPlanSupport(key)?.basic ?? false,
       category: catalogued?.category ?? null,
       caveat: catalogued?.caveat ?? null,
       description: catalogued?.description ?? null,
