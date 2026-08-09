@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { TABLE_CATALOGUE } from '../tableCatalogue'
-import { matchTable, isAlwaysFreeTable, attributeTable, indexedTableCount } from '../tableIndex'
+import { matchTable, guessTable, isAlwaysFreeTable, attributeTable, indexedTableCount } from '../tableIndex'
 import { publishedPlanSupport, verifiedTableCount } from '../tablePlanSupport'
 import { attributedTableCount } from '../connectorIndex'
 
@@ -176,5 +176,64 @@ describe('billability matches the Microsoft free-data list', () => {
     const m = matchTable('Watchlist')
     expect(m?.isFree).toBe(false)
     expect(m?.lakeCapable).toBe(false)
+  })
+})
+
+describe('a guess names a family and makes no billing claim', () => {
+  // A real tenant was shown "Likely Defender XDR… eligible for the M365 E5 data
+  // grant" against BehaviorAnalytics — Sentinel UEBA output, £61/month, not
+  // Defender XDR and not grant-eligible. A prefix match produced a billing
+  // claim, which is worse than the tier recommendation this function was
+  // carefully built never to produce.
+
+  const PREFIXES = [
+    'AWSSomethingNew', 'GCPSomethingNew', 'DeviceSomethingNew', 'EmailSomethingNew',
+    'AADSomethingNew', 'EntraSomethingNew', 'AppSomethingNew', 'ThreatIntelSomethingNew',
+    'Whatever_CL',
+  ]
+
+  it('never asserts grant eligibility', () => {
+    // Directing someone to CHECK grant eligibility is honest and useful; the
+    // banned thing is asserting it. So the test targets assertive phrasing
+    // rather than the word, which would also forbid the good advice.
+    for (const name of PREFIXES) {
+      const g = guessTable(name)
+      if (!g) continue
+      expect(g.note, `${name} asserts eligibility`)
+        .not.toMatch(/eligible for|covered by|qualifies for/i)
+    }
+  })
+
+  it('never asserts a table is billable or free', () => {
+    for (const name of PREFIXES) {
+      const g = guessTable(name)
+      if (!g) continue
+      // The paste carries the customer's own BillableMB, so billability is
+      // measured. A guess has nothing to add and everything to get wrong.
+      expect(g.note, `${name} asserts billability`).not.toMatch(/\bbillable\b|\bfree to ingest\b/i)
+    }
+  })
+
+  it('resolves the UEBA tables by name instead of guessing at them', () => {
+    for (const t of ['BehaviorAnalytics', 'UserPeerAnalytics', 'UserAccessAnalytics']) {
+      expect(matchTable(t), `${t} should be catalogued`).not.toBeNull()
+      expect(guessTable(t), `${t} should not need a guess`).toBeNull()
+    }
+  })
+
+  it('does not treat Sentinel UEBA output as Defender XDR', () => {
+    const m = matchTable('BehaviorAnalytics')!
+    expect(m.caveat).toMatch(/not covered by the E5 data grant/i)
+    // Neither cheaper plan is available, so no move may be offered.
+    expect(m.lakeCapable).toBe(false)
+    expect(m.basicCapable).toBe(false)
+    expect(m.recommendation).toBe('analytics')
+  })
+
+  it('still resolves the genuine Defender XDR behaviour tables', () => {
+    // Removing the prefix must not lose the real ones.
+    for (const t of ['BehaviorInfo', 'BehaviorEntities']) {
+      expect(matchTable(t), `${t} should be catalogued`).not.toBeNull()
+    }
   })
 })
