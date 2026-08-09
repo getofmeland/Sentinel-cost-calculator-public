@@ -18,6 +18,7 @@ export const TIER_PLACEMENT_DEFAULTS: TierPlacementDefault[] = [
   { sourceId: 'entra-id',            recommendedTier: 'analytics',  reason: 'Real-time identity detection: impossible travel, brute force, MFA bypass' },
   { sourceId: 'entra-id-protection', recommendedTier: 'free',       reason: 'SecurityAlert is free to ingest; risk signals still drive conditional access in real time' },
   { sourceId: 'mde',                 recommendedTier: 'analytics',  reason: 'Core EDR telemetry — real-time incident detection and response' },
+  { sourceId: 'mde-servers',         recommendedTier: 'analytics',  reason: 'Server EDR telemetry — where hands-on-keyboard activity shows up' },
   { sourceId: 'mdi',                 recommendedTier: 'analytics',  reason: 'Lateral movement and credential attack detection requires low latency' },
   { sourceId: 'mdo',                 recommendedTier: 'analytics',  reason: 'Phishing and BEC detection; alert correlation with identity signals' },
   { sourceId: 'mdca',                recommendedTier: 'analytics',  reason: 'Shadow IT and OAuth app abuse detection' },

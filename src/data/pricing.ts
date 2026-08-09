@@ -275,6 +275,16 @@ export interface LogSource {
   /** Seed count shown in the control before the user changes it */
   defaultDeviceCount?: number
   /**
+   * Devices per user, when the population genuinely tracks headcount.
+   *
+   * The default seeding grows device counts by the square root of user count,
+   * which suits firewalls, DNS servers and domain controllers — you do not buy
+   * twenty times the firewalls for twenty times the staff. Workstations are the
+   * exception: they scale roughly one to one, and √-scaling a laptop estate
+   * from 500 to 10,000 users seeds 2,236 machines instead of 10,000.
+   */
+  devicesPerUser?: number
+  /**
    * Optional presets that let the user select different volume profiles
    * (e.g. audit policy level, O365 workload scope).
    */
@@ -337,23 +347,52 @@ export const LOG_SOURCES: LogSource[] = [
     id: 'mde',
     label: 'Microsoft Defender for Endpoint',
     group: 'microsoft-defender',
-    scaleBy: 'users',
-    // ASSUMPTION, not a Microsoft figure. Two independent audits confirmed
-    // Microsoft publishes NO per-user or per-device volume for advanced hunting
-    // data anywhere — not in the billing pages, the connector docs, or the
-    // official cost estimator, whose stated method is "measure your own tenant".
+    // SCALES BY DEVICES, not users — corrected against a real measurement.
     //
-    // Two known weaknesses, both live:
-    //   - The 10.0 ceiling exceeds the only measured figure found for ALL M365
-    //     advanced hunting sources combined (~6.9 MB/user/day, practitioner).
-    //   - The 2.0 floor assumes all ten Device* tables are streamed. Streaming
-    //     is opt-in PER TABLE, so a partial selection — the common case — sits
-    //     well below it.
-    // Volume is also driven by DEVICES, so this implicitly assumes roughly one
-    // onboarded endpoint per user, and MDE-on-servers is modelled nowhere at all.
-    gbPer1000UsersRange: [2.0, 10.0],
+    // The old model was 2-10 GB per 1,000 users, which silently assumed about
+    // one onboarded endpoint per user and modelled MDE-on-servers nowhere at
+    // all. A 70-user tenant with 231 onboarded devices measured 2.04 GB/day of
+    // Device* tables; the per-user model predicted 0.31. It understated by 6.5x,
+    // because the denominator was wrong, not the rate.
+    //
+    // Microsoft still publishes no per-device figure — two audits confirmed the
+    // absence, and its own guidance is to measure your own tenant. This range is
+    // anchored on two points and is an assumption, not a citation:
+    //   - a practitioner measurement of ~6.9 MB/user/day across ALL M365
+    //     advanced hunting sources, with MDE "by far the largest share"
+    //   - the 231-device tenant above, whose blended figure is 8.8 MB/device/day
+    //     across 69 workstations and 162 servers
+    // Solving those together puts workstations near 4.5 and servers near 10.7,
+    // which is why the two populations are separate sources rather than one
+    // blended rate. A single number would embed a device-mix assumption exactly
+    // as the old one embedded a devices-per-user assumption.
+    scaleBy: 'devices',
+    gbPerDeviceRange: [0.002, 0.008],
+    deviceLabel: 'Onboarded workstations',
+    defaultDeviceCount: 500,
+    devicesPerUser: 1,
     isFree: false,
-    notes: 'Raw advanced hunting tables; incidents synced via XDR connector are free. Billable only if you opt into streaming Device* tables — measure your own tenant before quoting this',
+    notes: 'Raw Device* advanced hunting tables; incidents synced via the XDR connector are free. Streaming is opt-in per table, so a partial selection sits below this. Servers are counted separately',
+  },
+  {
+    id: 'mde-servers',
+    label: 'Defender for Endpoint — Servers',
+    group: 'microsoft-defender',
+    // Servers generate more Device* telemetry than workstations: more
+    // processes, more network connections, and they are on continuously. The
+    // rate here is solved from the same measurement rather than guessed, but it
+    // rests on one tenant and should be treated as a starting point.
+    //
+    // This is NOT the same data as the Windows server workloads further down.
+    // Those model SecurityEvent collected by the agent; this models the Device*
+    // tables streamed from Defender. A server onboarded to both produces both,
+    // which is why the counts are asked for separately.
+    scaleBy: 'devices',
+    gbPerDeviceRange: [0.005, 0.020],
+    deviceLabel: 'MDE-onboarded servers',
+    defaultDeviceCount: 25,
+    isFree: false,
+    notes: 'Device* telemetry from servers onboarded to Defender for Endpoint — separate from the Windows Security Events those servers also produce',
   },
   {
     id: 'mdi',

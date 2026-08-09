@@ -78,6 +78,13 @@ export const E5_DATA_GRANT_GB_PER_USER_PER_DAY = 0.005
  * Purview Information Protection has no corresponding source in the estimator.
  */
 export const E5_GRANT_ELIGIBLE_SOURCE_IDS: ReadonlySet<string> = new Set([
+  // 'mde-servers' is deliberately ABSENT. Its Device* tables look like the
+  // workstation ones, but the E5 grant is denominated per licensed USER while
+  // servers are covered by a separate per-server benefit, and Microsoft states
+  // the two offers "are separate products, so one won't cover the other". It
+  // does not say which side server-generated advanced hunting data falls on.
+  // Leaving it out shows a higher cost, which is the safe direction to be
+  // wrong in; granting it would understate the bill on an unverified reading.
   'entra-id',
   'mdca',
   'mde',

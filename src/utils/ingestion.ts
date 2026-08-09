@@ -103,7 +103,14 @@ export function midpoint(range: [number, number]): number {
  */
 export function scaledDeviceCount(source: LogSource, userCount: number): number {
   const base = source.defaultDeviceCount ?? 0
-  if (base === 0 || source.scaleBy !== 'devices') return base
+  if (source.scaleBy !== 'devices') return base
+
+  // Populations that track headcount one-for-one, like managed workstations.
+  // Everything else grows sub-linearly.
+  if (source.devicesPerUser) {
+    return Math.max(0, Math.round(sanitiseQuantity(userCount) * source.devicesPerUser))
+  }
+  if (base === 0) return base
 
   // Calibrated so the declared default holds at the 500-user reference point.
   const REFERENCE_USERS = 500

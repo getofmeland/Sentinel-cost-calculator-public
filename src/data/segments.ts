@@ -125,6 +125,7 @@ export const MXDR_DEFAULT_SOURCE_IDS: string[] = [
   'entra-id-protection',
   // Defender XDR workloads
   'mde',
+  'mde-servers',
   'mdi',
   'mdo',
   'mdca',
