@@ -3,6 +3,7 @@ import { TABLE_CATALOGUE } from '../tableCatalogue'
 import { matchTable, guessTable, isAlwaysFreeTable, attributeTable, indexedTableCount } from '../tableIndex'
 import { publishedPlanSupport, verifiedTableCount } from '../tablePlanSupport'
 import { attributedTableCount } from '../connectorIndex'
+import { P2_ELIGIBLE_TABLES, E5_ELIGIBLE_TABLES } from '../grantEligibleTables'
 
 /**
  * These cover the attributes that change what the tool *advises*, not merely
@@ -234,6 +235,47 @@ describe('a guess names a family and makes no billing claim', () => {
     // Removing the prefix must not lose the real ones.
     for (const t of ['BehaviorInfo', 'BehaviorEntities']) {
       expect(matchTable(t), `${t} should be catalogued`).not.toBeNull()
+    }
+  })
+})
+
+describe('the grant and the catalogue cover the same tables', () => {
+  // A table the engine credits but the report cannot name shows as
+  // "Unrecognised" next to a cost that has silently been reduced. The reader
+  // has no way to tell those two facts are connected.
+  it('resolves every table the Defender for Servers grant covers', () => {
+    const unresolved = [...P2_ELIGIBLE_TABLES].filter(t => !matchTable(t))
+    expect(unresolved).toEqual([])
+  })
+
+  it('resolves every table the E5 data grant covers', () => {
+    const unresolved = [...E5_ELIGIBLE_TABLES].filter(t => !matchTable(t))
+    expect(unresolved).toEqual([])
+  })
+})
+
+describe('every table a real tenant reported as unrecognised', () => {
+  // The full list from a live 162-server workspace. Six turned out to be
+  // eligible for a grant the tool had started applying, which is what made
+  // cataloguing them urgent rather than cosmetic.
+  const reported = [
+    'VMConnection', 'VMBoundPort', 'VMProcess', 'VMComputer',
+    'WindowsFirewall', 'SecurityBaseline', 'SecurityBaselineSummary',
+    'ProtectionStatus', 'Update', 'UpdateSummary',
+    'UserPeerAnalytics', 'IntuneDevices', 'AppSystemEvents',
+  ]
+
+  it.each(reported)('resolves %s', name => {
+    expect(matchTable(name)).not.toBeNull()
+  })
+
+  it('offers no cheaper plan to the ones that support none', () => {
+    // Most of this set publishes Basic: No and Lake: No. Recognising a table
+    // must not turn into recommending a move it cannot make.
+    for (const name of reported) {
+      const m = matchTable(name)!
+      if (m.recommendation === 'data-lake') expect(m.lakeCapable).toBe(true)
+      if (m.recommendation === 'basic') expect(m.basicCapable).toBe(true)
     }
   })
 })

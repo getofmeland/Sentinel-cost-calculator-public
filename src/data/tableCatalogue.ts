@@ -1,6 +1,7 @@
 import type { TierRecommendation } from './tierPlacement'
 // Value import of data, type-only import back the other way — no runtime cycle.
 import { EXTENDED_CATALOGUE } from './tableCatalogueExtended'
+import { P2_AND_INFRASTRUCTURE_CATALOGUE } from './tableCatalogueP2'
 
 /**
  * Table-keyed reference for Analyse mode.
@@ -476,7 +477,7 @@ const PLATFORM_AND_FREE: CatalogueEntry[] = [
 
 export const TABLE_CATALOGUE: CatalogueEntry[] = [
   ...AWS, ...GCP, ...THREAT_INTEL, ...DEFENDER_XDR, ...UEBA, ...OPERATIONAL,
-  ...PLATFORM_AND_FREE, ...EXTENDED_CATALOGUE,
+  ...PLATFORM_AND_FREE, ...EXTENDED_CATALOGUE, ...P2_AND_INFRASTRUCTURE_CATALOGUE,
 ]
 
 const BY_NAME = new Map(TABLE_CATALOGUE.map(e => [e.name.toLowerCase(), e]))
