@@ -55,8 +55,21 @@ export function AnalyseMode() {
       {parsed && <LicensingPanel value={licensing} onChange={setLicensing} />}
       {parsed && <DailyVolumePanel parsed={daily} onParsed={setDaily} />}
 
-      {result
-        ? <SavingsReport result={result} />
+      {/* `result` is only ever non-null when `parsed` is, but the compiler
+          cannot see that through the memo — narrow on both. */}
+      {result && parsed
+        ? (
+          <SavingsReport
+            result={result}
+            exportContext={{
+              licensing,
+              lookbackDays: parsed.lookbackDays,
+              // The parser's own caveats travel with the deliverable — a report
+              // built on a paste that dropped rows must say so.
+              warnings: parsed.warnings,
+            }}
+          />
+        )
         : (
           <div className="bg-surface rounded-xl border border-white/10 border-dashed px-6 py-10 text-center">
             <p className="text-sm text-light/60">

@@ -3,9 +3,18 @@ import { type AnalysedTable, type AnalysisResult, type Opportunity } from '../..
 import { fmtCurrency } from '../../utils/currency'
 import { usePricing } from '../../contexts/PricingContext'
 import { TableInfoPopover } from '../TableInfoPopover'
+import {
+  buildAnalysisMarkdown, buildAnalysisCsv, downloadText,
+  type AnalysisExportOptions,
+} from '../../utils/analyseExport'
 
 interface Props {
   result: AnalysisResult
+  /** Everything the export needs to record what produced these numbers */
+  exportContext: Omit<
+    AnalysisExportOptions,
+    'result' | 'currency' | 'fxRate' | 'eurRate' | 'region' | 'generatedAt'
+  >
 }
 
 const KIND_LABEL: Record<Opportunity['kind'], string> = {
@@ -35,8 +44,28 @@ const STATUS_LABEL: Record<AnalysedTable['status'], string> = {
  * substantiate, and hide volume it could not classify. Both would make the
  * headline number bigger and the advice worse.
  */
-export function SavingsReport({ result }: Props) {
-  const { fxRate, eurRate, displayCurrency } = usePricing()
+export function SavingsReport({ result, exportContext }: Props) {
+  const { fxRate, eurRate, displayCurrency, regionDisplayName } = usePricing()
+
+  // A figure without the licence, seats, tier and exclusions that produced it
+  // cannot be defended a month later, so the export carries all of them.
+  function exportAs(kind: 'markdown' | 'csv') {
+    const opts: AnalysisExportOptions = {
+      ...exportContext,
+      result,
+      currency: displayCurrency,
+      fxRate,
+      eurRate,
+      region: regionDisplayName,
+      generatedAt: new Date(),
+    }
+    const stamp = new Date().toISOString().slice(0, 10)
+    if (kind === 'markdown') {
+      downloadText(`sentinel-cost-analysis-${stamp}.md`, buildAnalysisMarkdown(opts), 'text/markdown')
+    } else {
+      downloadText(`sentinel-cost-analysis-${stamp}.csv`, buildAnalysisCsv(opts), 'text/csv')
+    }
+  }
   const [filter, setFilter] = useState('')
   const [unknownOnly, setUnknownOnly] = useState(false)
 
@@ -65,8 +94,28 @@ export function SavingsReport({ result }: Props) {
     <div className="space-y-6">
       {/* ── Headline ────────────────────────────────────────────────────── */}
       <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-white/10">
+        <div className="px-6 py-4 border-b border-white/10 flex items-start justify-between gap-4 flex-wrap">
           <h2 className="text-lg font-semibold text-light">3. What we found</h2>
+          {/* The findings are only worth anything if they can leave the browser.
+              Both formats record the assumptions that produced them, because a
+              cost figure without its licence, seat count and exclusions cannot
+              be defended a month later. */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => exportAs('markdown')}
+              className="text-xs px-3 py-1.5 rounded-md bg-primary text-white font-medium transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+            >
+              Download report
+            </button>
+            <button
+              type="button"
+              onClick={() => exportAs('csv')}
+              className="text-xs px-3 py-1.5 rounded-md bg-surface-raised text-light/80 font-medium transition-colors hover:text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+            >
+              Download CSV
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/10">
           <div className="px-6 py-4">
