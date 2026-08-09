@@ -514,14 +514,34 @@ export function analyseUsage(
     ? costAtVolume(existingTier, analyticsRemaining) * DAYS_PER_MONTH
     : payg.monthlyCostUsd
 
-  // Day-by-day sizing supersedes the average when we have it, because it is the
-  // same arithmetic applied to real data rather than to a single flat number.
-  const recommendedLabel = dailySizing ? dailySizing.bestTierLabel : averageRecommended?.label ?? null
+  // Pay-as-you-go is a legitimate DESTINATION once an existing tier is known.
+  //
+  // This used to exclude it — `isRecommended && !isPayg` — which was right
+  // while the mode assumed every customer was already on pay-as-you-go, since
+  // recommending it to them is a no-op. With a stated tier it left a hole
+  // exactly where an over-committed customer's money is: a workspace on the
+  // 100 GB/day tier sending 20 GB/day pays $11,263/month against $3,275 on
+  // pay-as-you-go, and the tool said nothing at all, because no TIER was
+  // cheaper and PAYG was not allowed to be the answer.
+  //
+  // Being over-committed is the classic optimisation finding. It cannot be the
+  // one case the tool cannot express.
+  const cheapest = options.reduce((a, b) => (b.monthlyCostUsd < a.monthlyCostUsd ? b : a))
+  const currentLabel = existingTier ? tierLabel(existingTier) : payg.label
+
+  const recommendedLabel = dailySizing
+    // tierSizing returns null for pay-as-you-go, which is now meaningful.
+    ? dailySizing.bestTierLabel ?? payg.label
+    : existingTier
+      ? cheapest.label
+      : averageRecommended?.label ?? null
+
   const recommended = recommendedLabel
     ? options.find(o => o.label === recommendedLabel) ?? null
     : null
 
-  if (recommended) {
+  // Nothing to say when the workspace is already on the right thing.
+  if (recommended && recommended.label !== currentLabel) {
     const saving = dailySizing
       ? baselineMonthlyUsd - dailySizing.bestMonthlyUsd
       : baselineMonthlyUsd - recommended.monthlyCostUsd
@@ -558,11 +578,28 @@ export function analyseUsage(
         : ''
       opportunities.push({
         kind: 'commitment-tier',
-        title: `Move to the ${recommended.label} commitment tier`,
+        title: recommended.isPayg
+          ? 'Drop the commitment tier and move to pay-as-you-go'
+          : existingTier
+            ? `Change commitment tier from ${currentLabel} to ${recommended.label}`
+            : `Move to the ${recommended.label} commitment tier`,
         detail:
           `Your Analytics-tier ingestion would be ${analyticsRemaining.toFixed(1)} GB/day${movedNote}. `
-          + `Committing to ${recommended.label} bills that at the tier rate instead of `
-          + `pay-as-you-go. Basic and Auxiliary volume is excluded — commitment tiers do not `
+          + (recommended.isPayg
+            // Only reachable when a tier is already in force, so this is always
+            // a downgrade and the 31-day lock is the operative constraint.
+            ? `That is below the point where any commitment tier pays for itself, so you are buying `
+              + `capacity you are not using. A tier can only be LOWERED once every 31 days, so start `
+              + `this now rather than after the other moves — and be sure the volume is not about to `
+              + `come back, because reversing it is immediate but reversing it again is not.`
+            : existingTier
+              ? `Committing to ${recommended.label} instead of ${currentLabel} bills that volume at a `
+                + `rate that fits it. Increasing a tier takes effect immediately; LOWERING one is `
+                + `permitted only every 31 days, so if the moves above shrink your volume, change the `
+                + `tier first or you pay the old commitment on data you no longer send.`
+              : `Committing to ${recommended.label} bills that at the tier rate instead of `
+                + `pay-as-you-go. Lowering a tier is only permitted every 31 days.`)
+          + ` Basic and Auxiliary volume is excluded — commitment tiers do not `
           + `cover those plans.${promoNote}${variabilityNote}`,
         monthlySavingUsd: saving,
         tables: [],

@@ -287,3 +287,60 @@ describe('promotional tiers are disclosed', () => {
     }
   })
 })
+
+describe('over-committed workspaces', () => {
+  // Spotted from real use: a customer on a tier who is not sending enough to
+  // justify it saw no finding at all. The recommendation search excluded
+  // pay-as-you-go — correct while everyone was assumed to be ON pay-as-you-go,
+  // and a hole once an existing tier could be stated, because being
+  // over-committed is the classic optimisation finding.
+  //
+  // On the 100 GB/day tier sending 20 GB/day: $11,263/mo against $3,275 on
+  // pay-as-you-go. Nearly $8,000 a month, invisible.
+
+  const at = (gbPerDay: number) =>
+    `TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${mb(gbPerDay)}`
+  const on = (tier: number | null): LicensingInput => ({
+    licence: 'none', licensedSeats: 0, defenderServersP2Enabled: false, serverCount: 0,
+    currentCommitmentTierGbPerDay: tier,
+  })
+  const tierOpp = (r: ReturnType<typeof analyse>) =>
+    r.opportunities.find(o => o.kind === 'commitment-tier')
+
+  it('recommends dropping to pay-as-you-go when no tier pays for itself', () => {
+    const r = analyse(at(20), on(100))
+    const opp = tierOpp(r)!
+    expect(opp.title).toMatch(/pay-as-you-go/i)
+    expect(opp.monthlySavingUsd).toBeGreaterThan(7_000)
+  })
+
+  it('warns that a downgrade is locked for 31 days', () => {
+    // The operative constraint on this specific move, and the reason to start
+    // it before the plan moves rather than after.
+    expect(tierOpp(analyse(at(20), on(100)))!.detail).toMatch(/31 days/)
+  })
+
+  it('names both the current and the target tier when changing between tiers', () => {
+    const opp = tierOpp(analyse(at(120), on(500)))!
+    expect(opp.title).toContain('500 GB/day')
+    expect(opp.title).toContain('100 GB/day')
+  })
+
+  it('says nothing when the workspace is already on the best option', () => {
+    // Both directions of "already right" — on the correct tier, and on
+    // pay-as-you-go at a volume where that is correct.
+    expect(tierOpp(analyse(at(100), on(100)))).toBeUndefined()
+    expect(tierOpp(analyse(at(20), on(null)))).toBeUndefined()
+  })
+
+  it('never recommends a move that costs more than staying put', () => {
+    // The property behind all of the above: whatever it recommends, the
+    // resulting spend must be no worse than the current spend.
+    for (const [tier, gb] of [[100, 20], [100, 100], [100, 300], [500, 120], [50, 10], [null, 300]] as const) {
+      const r = analyse(at(gb), on(tier))
+      const saving = tierOpp(r)?.monthlySavingUsd ?? 0
+      expect(saving).toBeGreaterThanOrEqual(0)
+      expect(saving).toBeLessThanOrEqual(r.currentMonthlyUsd + 1e-6)
+    }
+  })
+})
