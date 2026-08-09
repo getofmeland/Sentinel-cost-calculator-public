@@ -166,6 +166,17 @@ function allocateGrant(
     // on their own flat meters and are not what either offer covers.
     if (row.plan !== 'Analytics') continue
     if (!isEligible(row.tableName)) continue
+    // Never spend a pool on a table that should not be billed at all.
+    //
+    // SecurityAlert is on Microsoft's free-data list AND on the P2 eligible
+    // list — real overlap in shipped data, not a constructed case. Granting it
+    // caused the same gigabytes to leave the tier pool twice: once via
+    // grantedAnalyticsGbPerDay and again via the wronglyBilled reducer, which
+    // works on gross volume. On a two-table fixture that drove the sizing pool
+    // to zero and suppressed a commitment-tier recommendation worth real money.
+    // It also netted the misconfiguration saving down to nothing, blinding the
+    // very feature that flags being billed for free data.
+    if (isAlwaysFreeTable(row.tableName)) continue
 
     const already = credited.get(row.tableName) ?? 0
     const available = row.billableGbPerDay - already
@@ -197,27 +208,46 @@ export function analyseUsage(
   licensing?: LicensingInput,
 ): AnalysisResult {
   // ── Free-ingestion grants, applied before anything is costed ─────────────
-  //
-  // Order matters and is deliberate. Defender for Servers P2 goes first because
-  // its pool is far larger per unit (500 MB per server against 5 MB per seat)
-  // and its eligible set is narrow, so spending it first leaves the broader E5
-  // pool for tables only E5 covers. Three tables sit in both lists, which is
-  // exactly why allocation is tracked per table.
-  const grantedGbByTable = new Map<string, number>()
-
   const p2AllowanceGbPerDay = licensing?.defenderServersP2Enabled
     ? Math.max(0, licensing.serverCount) * (P2_GRANT_MB_PER_SERVER_PER_DAY / 1000)
     : 0
-  const p2GrantedGbPerDay = allocateGrant(
-    usage.rows, isP2Eligible, p2AllowanceGbPerDay, grantedGbByTable,
-  )
-
   const e5AllowanceGbPerDay = licensing && E5_QUALIFYING_LICENCES.has(licensing.licence)
     ? Math.max(0, licensing.licensedSeats) * (E5_GRANT_MB_PER_LICENSED_USER_PER_DAY / 1000)
     : 0
-  const e5GrantedGbPerDay = allocateGrant(
-    usage.rows, isE5Eligible, e5AllowanceGbPerDay, grantedGbByTable,
-  )
+
+  // Which pool goes first CHANGES THE TOTAL, because three tables sit in both
+  // eligible sets. Spending P2 on a shared table can strand a P2-only table
+  // while the E5 pool sits unused — review priced one such case at $655/month
+  // of bill that the other ordering avoids entirely. The original fixed
+  // P2-first rule was justified on per-unit pool size, which says nothing
+  // about aggregate size and was simply wrong reasoning.
+  //
+  // Both grants are separate meters Microsoft applies automatically, so the
+  // real invoice reflects whichever assignment covers more. Trying both and
+  // keeping the better one is therefore not an optimisation — it is what the
+  // customer is actually billed.
+  const bothOrderings = [true, false].map(p2First => {
+    const credited = new Map<string, number>()
+    const first = p2First
+      ? allocateGrant(usage.rows, isP2Eligible, p2AllowanceGbPerDay, credited)
+      : allocateGrant(usage.rows, isE5Eligible, e5AllowanceGbPerDay, credited)
+    const second = p2First
+      ? allocateGrant(usage.rows, isE5Eligible, e5AllowanceGbPerDay, credited)
+      : allocateGrant(usage.rows, isP2Eligible, p2AllowanceGbPerDay, credited)
+    return {
+      credited,
+      p2: p2First ? first : second,
+      e5: p2First ? second : first,
+      total: first + second,
+    }
+  })
+  const best = bothOrderings[0].total >= bothOrderings[1].total
+    ? bothOrderings[0]
+    : bothOrderings[1]
+
+  const grantedGbByTable = best.credited
+  const p2GrantedGbPerDay = best.p2
+  const e5GrantedGbPerDay = best.e5
 
   const tables: AnalysedTable[] = usage.rows.map(row => {
     const match = matchTable(row.tableName)

@@ -134,3 +134,91 @@ describe('no licensing supplied', () => {
     expect(without.e5GrantedGbPerDay).toBe(0)
   })
 })
+
+describe('a grant never collides with the should-be-free detection', () => {
+  // Found by adversarial review, and it was live. SecurityAlert is on
+  // Microsoft's free-data list AND on the P2 eligible list — genuine overlap in
+  // shipped data. Granting it removed the same gigabytes from the tier pool
+  // twice (once as granted volume, once as gross wrongly-billed volume) and
+  // netted the misconfiguration saving down to nothing.
+
+  const fixture = [
+    'TableName\tPlan\tBillableMB',
+    `SecurityAlert\tAnalytics\t${mb(20)}`,   // free per Microsoft, and P2-eligible
+    `SecurityEvent\tAnalytics\t${mb(10)}`,   // genuinely billed
+  ].join('\n')
+  const twentyServers: LicensingInput = {
+    licence: 'none', licensedSeats: 0, defenderServersP2Enabled: true, serverCount: 20,
+  }
+
+  it('spends the pool on billed volume, not on data that should be free', () => {
+    const r = analyse(fixture, twentyServers)
+    const alert = r.tables.find(t => t.tableName === 'SecurityAlert')!
+    expect(alert.grantedGbPerDay).toBe(0)
+    // The 10 GB/day pool goes to SecurityEvent, which is genuinely billed.
+    expect(r.p2GrantedGbPerDay).toBeCloseTo(10, 2)
+  })
+
+  it('still reports the full misconfiguration saving', () => {
+    // Previously the grant netted this to zero and the "billed but should be
+    // free" opportunity went dark — blinding the feature that exists to catch
+    // exactly this.
+    const r = analyse(fixture, twentyServers)
+    const alert = r.tables.find(t => t.tableName === 'SecurityAlert')!
+    expect(alert.status).toBe('should-be-free')
+    expect(alert.potentialSavingUsd)
+      .toBeCloseTo(20 * STATIC_PRICING_BUNDLE.paygRateUsd * DAYS_PER_MONTH, 0)
+  })
+
+  it('does not subtract the same volume from the tier pool twice', () => {
+    // Deliberately a PARTIAL grant. With a pool that exactly covers
+    // SecurityEvent the answer is zero either way, so the fixture would pass
+    // against the bug — the trap this suite has fallen into before.
+    //
+    // 8 servers = 4 GB/day pool. It now goes to SecurityEvent (billed), not to
+    // SecurityAlert (should be free), leaving SecurityEvent with 6 GB/day still
+    // billed. That 6 is the only volume a commitment tier could be sized on.
+    const r = analyse(fixture, { ...twentyServers, serverCount: 8 })
+    expect(r.tables.find(t => t.tableName === 'SecurityEvent')!.grantedGbPerDay)
+      .toBeCloseTo(4, 2)
+    expect(r.analyticsGbPerDayAfterMoves).toBeCloseTo(6, 1)
+  })
+})
+
+describe('grant ordering takes whichever assignment covers more', () => {
+  it('does not strand a P2-only table by spending P2 on a shared one', () => {
+    // Review priced the fixed P2-first rule at $655/mo on this shape:
+    // DeviceCustomFileEvents is eligible for BOTH, SecurityEvent only for P2.
+    // Spending P2 on the shared table left SecurityEvent uncovered while the
+    // E5 pool sat unused.
+    const r = analyse([
+      'TableName\tPlan\tBillableMB',
+      `DeviceCustomFileEvents\tAnalytics\t${mb(6)}`,
+      `SecurityEvent\tAnalytics\t${mb(4)}`,
+    ].join('\n'), {
+      licence: 'e5', licensedSeats: 1200, defenderServersP2Enabled: true, serverCount: 12,
+    })
+    // Both pools are 6 GB/day; between them they cover all 10 GB/day.
+    expect(r.p2GrantedGbPerDay + r.e5GrantedGbPerDay).toBeCloseTo(10, 2)
+    expect(r.currentMonthlyUsd).toBe(0)
+  })
+
+  it('is never worse than either fixed ordering', () => {
+    // The property, rather than the single case. Total credit must equal the
+    // best achievable, whichever pool happens to be scarce.
+    for (const [servers, seats] of [[12, 1200], [1000, 10], [2, 2], [50, 500]]) {
+      const r = analyse([
+        'TableName\tPlan\tBillableMB',
+        `DeviceCustomFileEvents\tAnalytics\t${mb(6)}`,
+        `SecurityEvent\tAnalytics\t${mb(4)}`,
+        `SigninLogs\tAnalytics\t${mb(3)}`,
+      ].join('\n'), {
+        licence: 'e5', licensedSeats: seats, defenderServersP2Enabled: true, serverCount: servers,
+      })
+      const granted = r.p2GrantedGbPerDay + r.e5GrantedGbPerDay
+      const pools = servers * 0.5 + seats * 0.005
+      expect(granted).toBeLessThanOrEqual(Math.min(pools, 13) + 1e-6)
+      expect(granted).toBeGreaterThanOrEqual(0)
+    }
+  })
+})
