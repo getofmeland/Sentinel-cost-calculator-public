@@ -385,6 +385,23 @@ export function analyseUsage(
 
   // ── 2. Tier placement ─────────────────────────────────────────────────────
   const movable = tables.filter(t => t.status === 'move-to-lake')
+
+  // Some of these are SHARED tables. CommonSecurityLog carries CEF from
+  // firewalls, VPN concentrators and mail gateways alike; the index records
+  // that several sources claim it and that they happen to agree on a tier.
+  //
+  // The tool has always computed that flag and never shown it. Everywhere else
+  // this codebase is scrupulous about admitting what it does not know, and here
+  // it was quietly resting a costed recommendation on an assumption about what
+  // is INSIDE a table it cannot see into. Saying so is the point of the flag.
+  const sharedTables = movable.filter(t => t.match?.ambiguousButAgreed)
+  const sharedNote = sharedTables.length > 0
+    ? ` ${sharedTables.map(t => t.tableName).join(', ')} ${sharedTables.length === 1 ? 'is a' : 'are'} `
+      + `shared table${sharedTables.length === 1 ? '' : 's'} that several connectors write into. Every `
+      + `source we know of agrees on this tier, but we cannot see which of them is actually feeding `
+      + `yours — confirm what is in it before moving it.`
+    : ''
+
   if (movable.length > 0) {
     opportunities.push({
       kind: 'tier-placement',
@@ -393,7 +410,8 @@ export function analyseUsage(
         `These carry investigative rather than real-time detection value, and Data Lake ingestion `
         + `costs a fraction of Analytics. Two things to check before moving anything: alerts stop `
         + `working on a table once it moves to the Lake plan, and Microsoft allows only one plan `
-        + `change per table per week — so verify nothing you detect on depends on these first.`,
+        + `change per table per week — so verify nothing you detect on depends on these first.`
+        + sharedNote,
       monthlySavingUsd: movable.reduce((a, t) => a + t.potentialSavingUsd, 0),
       tables: movable.map(t => t.tableName),
     })
@@ -615,6 +633,22 @@ export function analyseUsage(
   // is reported as something to investigate rather than a costed saving.
   const operational = tables.filter(t => t.match?.category === 'operational' && t.billableGbPerDay > 0)
   const operationalMonthlyUsd = operational.reduce((a, t) => a + t.monthlyCostUsd, 0)
+
+  // Some of these will already appear above as a tier move. That is not a
+  // double-count — the headline excludes this item entirely — but a reader
+  // seeing AppTraces as both an £82 saving and £103 "at stake" is entitled to
+  // wonder which it is. They are alternatives: move the table to a cheaper
+  // plan, or move it out of the workspace. Doing the second makes the first
+  // moot, so the overlap is named rather than left to be inferred.
+  const alsoActioned = operational.filter(
+    t => t.status === 'move-to-basic' || t.status === 'move-to-lake',
+  )
+  const overlapNote = alsoActioned.length > 0
+    ? ` ${alsoActioned.map(t => t.tableName).join(', ')} also appear${alsoActioned.length === 1 ? 's' : ''} `
+      + `above as a tier move. These are alternatives rather than additions — moving a table out of `
+      + `this workspace makes any plan change to it moot, so count one or the other, not both.`
+    : ''
+
   if (operational.length > 0) {
     opportunities.push({
       kind: 'operational-data',
@@ -624,7 +658,8 @@ export function analyseUsage(
         + `data with no security purpose. Microsoft recommends keeping operational data in a separate `
         + `workspace — but check two things first: combining volume can reach a commitment tier that `
         + `neither workspace would reach alone, and a workspace without Sentinel gets 31 days of free `
-        + `retention rather than 90. Below roughly 100 GB/day combined, separating usually wins.`,
+        + `retention rather than 90. Below roughly 100 GB/day combined, separating usually wins.`
+        + overlapNote,
       // Deliberately zero: whether this is a saving depends on the two effects
       // above, so it must not inflate a headline number we would have to defend.
       monthlySavingUsd: 0,

@@ -405,6 +405,14 @@ export function SavingsReport({ result, exportContext }: Props) {
                     {t.match?.reason && (
                       <p className="text-[10px] text-light/60 mt-0.5 max-w-md">{t.match.reason}</p>
                     )}
+                    {/* The index has always known when a recommendation rests on an
+                        assumption about a shared table's contents. It never said so. */}
+                    {t.match?.ambiguousButAgreed && t.status !== 'ok' && (
+                      <p className="text-[10px] text-accent-text mt-0.5 max-w-md">
+                        Shared table — {t.match.sourceIds.length} connectors write here and all
+                        recommend the same tier, but we cannot see which is feeding yours.
+                      </p>
+                    )}
                     {t.match?.caveat && (
                       <p className="text-[10px] text-accent-text mt-0.5 max-w-md">⚠ {t.match.caveat}</p>
                     )}

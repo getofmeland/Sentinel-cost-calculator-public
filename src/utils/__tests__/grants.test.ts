@@ -344,3 +344,53 @@ describe('over-committed workspaces', () => {
     }
   })
 })
+
+describe('the tool says when it is guessing', () => {
+  // ambiguousButAgreed was computed, unit-tested and never rendered anywhere.
+  // A consultant review called that the sharpest contradiction of this
+  // codebase's own ethic: everywhere else it is scrupulous about admitting
+  // uncertainty, and here it rested a costed recommendation on an assumption
+  // about what is inside a table it cannot see into.
+
+  it('flags a shared table behind a tier move', () => {
+    // CommonSecurityLog carries CEF from firewalls, VPN and mail gateways.
+    const r = analyse(paste(`CommonSecurityLog\tAnalytics\t${mb(40)}`))
+    expect(r.tables[0].match?.ambiguousButAgreed).toBe(true)
+    const opp = r.opportunities.find(o => o.kind === 'tier-placement')!
+    expect(opp.detail).toContain('CommonSecurityLog')
+    expect(opp.detail).toMatch(/shared table/i)
+    expect(opp.detail).toMatch(/confirm what is in it/i)
+  })
+
+  it('stays quiet for a table only one source claims', () => {
+    const r = analyse(paste(`DnsEvents\tAnalytics\t${mb(20)}`))
+    const opp = r.opportunities.find(o => o.kind === 'tier-placement')
+    if (opp) expect(opp.detail).not.toMatch(/shared table/i)
+  })
+})
+
+describe('overlapping advice is named as alternatives', () => {
+  // AppTraces appeared as an £82 Basic-plan saving AND in the operational-data
+  // question as £103 at stake. The headline never double-counted — that item
+  // carries a zero saving — but a reader seeing both is entitled to ask which
+  // it is. They are alternatives: re-tier it, or move it out of the workspace.
+  it('says so when a table appears in both', () => {
+    const r = analyse(paste(`AppTraces\tAnalytics\t${mb(0.85)}`))
+    const q = r.opportunities.find(o => o.kind === 'operational-data')!
+    expect(q.detail).toContain('AppTraces')
+    expect(q.detail).toMatch(/alternatives rather than additions/i)
+  })
+
+  it('adds nothing when there is no overlap', () => {
+    const r = analyse(paste(`InsightsMetrics\tAnalytics\t${mb(2)}`))
+    const q = r.opportunities.find(o => o.kind === 'operational-data')
+    if (q) expect(q.detail).not.toMatch(/alternatives rather than additions/i)
+  })
+
+  it('still keeps the overlapping table out of the headline', () => {
+    // The guard that made the overlap tolerable in the first place.
+    const r = analyse(paste(`AppTraces\tAnalytics\t${mb(0.85)}`))
+    expect(r.opportunities.find(o => o.kind === 'operational-data')!.monthlySavingUsd).toBe(0)
+    expect(r.totalAddressableSavingUsd).toBeLessThan(r.currentMonthlyUsd)
+  })
+})
