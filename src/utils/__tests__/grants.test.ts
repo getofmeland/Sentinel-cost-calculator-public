@@ -281,11 +281,10 @@ describe('promotional tiers are disclosed', () => {
     // Analyse mode did not, so an expiring saving could reach a deliverable.
     const r = analyse(`TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${mb(60)}`, NO_LICENCE)
     const opp = r.opportunities.find(o => o.kind === 'commitment-tier')
-    if (opp?.title.includes('50 GB/day')) {
-      expect(opp.detail).toMatch(/promotional tier/i)
-      expect(opp.detail).toMatch(/31 December 2026/)
-      expect(opp.detail).toMatch(/31 March 2027/)
-    }
+    expect(opp?.title).toContain('50 GB/day')
+    expect(opp?.detail).toMatch(/promotional tier/i)
+    expect(opp?.detail).toMatch(/31 December 2026/)
+    expect(opp?.detail).toMatch(/31 March 2027/)
   })
 })
 

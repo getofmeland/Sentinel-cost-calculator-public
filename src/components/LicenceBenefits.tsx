@@ -200,7 +200,7 @@ export function LicenceBenefits({
               min={0}
               max={totalUsers}
               step={10}
-              value={licensedSeats ?? ''}
+              value={licensedSeats === null ? '' : Math.min(licensedSeats, totalUsers)}
               placeholder={String(totalUsers)}
               onChange={e => {
                 const v = e.target.value.trim()
@@ -211,7 +211,7 @@ export function LicenceBenefits({
             <span className="text-[11px] text-light/60">
               {licensedSeats === null
                 ? `Assuming all ${totalUsers.toLocaleString()} users are licensed. Enter the real seat count if fewer are.`
-                : `${licensedSeats.toLocaleString()} of ${totalUsers.toLocaleString()} users. Guests and service accounts earn no grant — count seats of this licence only.`}
+                : `${Math.min(licensedSeats, totalUsers).toLocaleString()} of ${totalUsers.toLocaleString()} users. Guests and service accounts earn no grant — count seats of this licence only.`}
             </span>
           </div>
         )}

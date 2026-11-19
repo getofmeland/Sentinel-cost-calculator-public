@@ -5,7 +5,7 @@ import { TIER_PLACEMENT_DEFAULTS, TierRecommendation } from '../data/tierPlaceme
 import { DAYS_PER_MONTH, type AnalyticsBillingMode, ISOC_INCLUDED_ANALYTICS_SOURCE_IDS } from '../data/pricing'
 import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
 import { fmtCurrency, fmtBoth } from '../utils/currency'
-import { splitIsocAnalyticsGb } from '../utils/tiers'
+import { isocAnalyticsBaselineGb, splitIsocAnalyticsGb } from '../utils/tiers'
 import { usePricing } from '../contexts/PricingContext'
 
 interface Props {
@@ -63,7 +63,7 @@ export function TierPlacementTab({
   }
 
   const allAnalyticsCostMonthly = isocSelected
-    ? (isocVolume.paidGbPerDay + dataLakeGbPerDay) * pricing.defenderIsocRateUsd * DAYS_PER_MONTH
+    ? isocAnalyticsBaselineGb(rows, isocVolume.paidGbPerDay) * pricing.defenderIsocRateUsd * DAYS_PER_MONTH
     : (analyticsGbPerDay + dataLakeGbPerDay) * pricing.paygRateUsd * DAYS_PER_MONTH
   const analyticsMonthly = isocSelected
     ? isocVolume.paidGbPerDay * pricing.defenderIsocRateUsd * DAYS_PER_MONTH

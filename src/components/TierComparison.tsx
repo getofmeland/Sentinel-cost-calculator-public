@@ -1,5 +1,5 @@
-import { computeTierOptions, defenderIsocMonthlyUsd } from '../utils/tiers'
-import { BILLING_RULES, DAYS_PER_MONTH, type AnalyticsBillingMode } from '../data/pricing'
+import { computeTierOptions, defenderIsocMonthlyUsd, isocSavingVersusClassicMonthly, promoTierSignupOpen } from '../utils/tiers'
+import { BILLING_RULES, DAYS_PER_MONTH, STATIC_PRICING_BUNDLE, type AnalyticsBillingMode } from '../data/pricing'
 import { isocBillingAllowed, type M365Licence } from '../data/licenceBenefits'
 import { usePricing } from '../contexts/PricingContext'
 import { TierTable } from './TierTable'
@@ -35,12 +35,14 @@ export function TierComparison({
 }: Props) {
   const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateNote } = usePricing()
   const isocEligible = isocBillingAllowed(licence)
-  const options = computeTierOptions(analyticsGbPerDay, pricing, fxRate)
+  const options = computeTierOptions(analyticsGbPerDay, pricing, fxRate, new Date(), promoTierSignupOpen())
   const isocDaily = isocPaidGbPerDay * pricing.defenderIsocRateUsd
   const isocMonthly = defenderIsocMonthlyUsd(isocPaidGbPerDay, pricing.defenderIsocRateUsd)
-  const paygMonthly = isocPaidGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH
+  // A UK South ISOC fallback must not be compared with another region's live pay-as-you-go rate.
+  const paygRateForIsoc = defenderIsocRateNote ? STATIC_PRICING_BUNDLE.paygRateUsd : pricing.paygRateUsd
+  const paygMonthly = isocPaidGbPerDay * paygRateForIsoc * DAYS_PER_MONTH
   const vsPaygPct = paygMonthly > 0 ? ((paygMonthly - isocMonthly) / paygMonthly) * 100 : 0
-  const vsClassic = classicAnalyticsMonthlyUsd - isocMonthly
+  const vsClassic = isocSavingVersusClassicMonthly(classicAnalyticsMonthlyUsd, isocMonthly)
 
   function fmt(usd: number, decimals = 2) {
     return fmtCurrency(usd, displayCurrency, fxRate, eurRate, decimals)
@@ -94,15 +96,17 @@ export function TierComparison({
             <span>
               <span className="block text-sm font-medium text-light">Defender ISOC</span>
               <span className="block text-xs text-light/60 mt-1">
-                {fmt(pricing.defenderIsocRateUsd)}/GB, flat. No commitment tiers.
-                {isocEligible && isocPaidGbPerDay > 0 && (
+                {fmt(pricing.defenderIsocRateUsd)}/GB. No commitment tiers were in the UK South price list.
+                {isocEligible && (
                   <> {fmt(isocDaily, 0)}/day · {fmt(isocMonthly, 0)}/month on additional data.</>
                 )}
               </span>
-              {isocEligible && isocPaidGbPerDay > 0 && (
+              {isocEligible && (
                 <span className="block text-xs text-light/60 mt-1">
                   {fmt(Math.abs(vsClassic), 0)}/month {vsClassic >= 0 ? 'under' : 'above'} the recommended classic Analytics cost
-                  {vsPaygPct > 0 && <> · flat rate is {vsPaygPct.toFixed(0)}% under pay-as-you-go on that additional volume</>}.
+                  {isocPaidGbPerDay > 0 && vsPaygPct !== 0 && (
+                    <> · {vsPaygPct.toFixed(0)}% {vsPaygPct > 0 ? 'under' : 'above'} {defenderIsocRateNote ? 'the UK South pay-as-you-go rate' : 'pay-as-you-go on that additional volume'}</>
+                  )}.
                 </span>
               )}
               {defenderIsocRateNote && (
@@ -113,8 +117,8 @@ export function TierComparison({
         </div>
         <p className="text-xs text-light/60 mt-3 leading-relaxed">
           {isocEligible
-            ? `Defender ISOC is an opt-in from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)} for Microsoft 365 E5 and E7. Microsoft Defender Suite is also named in the announcement; this calculator has no separate Defender Suite licence. The meter prices additional data only. ${isocIncludedGbPerDay.toFixed(2)} GB/day of listed Defender for Endpoint, Identity, Office 365, Cloud Apps and Entra data is left off the charge. Defender for Cloud Apps here also models Shadow IT discovery, which that page does not list. Anything else stays on the meter, so the total is an upper bound where the list is silent.`
-            : `Defender ISOC is available from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)} with Microsoft 365 E5 or E7. Select one of those licences to use this rate.`}
+            ? `Existing Sentinel customers with Microsoft 365 E5 or E7 can opt in from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)}. The announcement also names Microsoft Defender Suite, which this calculator does not model as its own licence. ${isocIncludedGbPerDay.toFixed(2)} GB/day of listed Defender for Endpoint (including server Device* telemetry), Identity, Office 365 and Entra data is left off the charge. Defender for Cloud Apps stays on the paid meter: this estimate mixes included CloudAppEvents with Shadow IT discovery, which the billing page does not list, and there is no published split. Keeping that source on the meter makes the total an upper bound.`
+            : `Existing Sentinel customers can opt into Defender ISOC from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)} with Microsoft 365 E5 or E7. Select one of those licences to use this rate.`}
         </p>
       </fieldset>
 

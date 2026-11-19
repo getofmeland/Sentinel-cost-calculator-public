@@ -118,8 +118,8 @@ export function buildEstimateCsv(o: CsvExportOptions): string {
   )
   if (isocSelected) {
     rows.push(['Note', isocRate === undefined
-      ? 'Defender ISOC was selected. Per-source Analytics rows stay on classic rates because no ISOC rate was supplied. The scenario total is still the ISOC total, not a commitment tier.'
-      : 'Listed Defender and Entra Analytics rows are included with ISOC. Other Analytics rows use the flat ISOC rate. Data Lake rows stay on the Data Lake rate. Licence grants are not applied to the ISOC total. Where a source is not on Microsoft\'s included list, the total is an upper bound.'])
+      ? 'Defender ISOC was selected but no ISOC rate was supplied. Listed Defender and Entra Analytics rows are still zero. Other Analytics rows stay on classic rates. The scenario total is the ISOC total, not a commitment tier.'
+      : 'Listed Defender for Endpoint, Identity, Office 365 and Entra rows are included with ISOC. Defender for Cloud Apps stays on the paid meter because this estimate also models Shadow IT discovery, which the billing page does not list, so the total is an upper bound. Other additional Analytics rows use the ISOC rate. Data Lake rows stay on the Data Lake rate. Licence grants are not applied to the ISOC total.'])
   }
 
   return toCsv(rows)

@@ -44,8 +44,9 @@ export const PAYG_RATE_USD_PER_GB = 5.38
  *      and meterName eq 'Pay As You Go Analysis'
  *
  * That meter is 2.88 in UK South and 2.40 in East US. The East US figure is
- * the one the Ignite 2026 announcement quotes. The product publishes no
- * commitment-tier meters, so the rate does not fall with volume.
+ * the one the Ignite 2026 announcement quotes. The UK South payload had no
+ * commitment-tier meters on 19 November 2026. Other regions were not checked
+ * for a commitment tier on this product.
  *
  * Opt-in from 17 November 2026 for Microsoft 365 E5, Microsoft 365 E7 and
  * Microsoft Defender Suite. Classic Sentinel pay-as-you-go is a different meter
@@ -59,15 +60,24 @@ export const DEFENDER_ISOC_RATE_USD_PER_GB = 2.88
  *
  * The billing page says native Defender data is part of the ISOC benefit and
  * that only additional Microsoft and non-Microsoft data is billed separately.
- * The listed tables are the Device* set (Defender for Endpoint, including
- * servers), Identity* (Defender for Identity), the Defender for Office 365
- * email tables, CloudAppEvents (Defender for Cloud Apps) and the Entra sign-in
- * and Graph API audit tables.
  * https://learn.microsoft.com/en-us/defender-xdr/integrated-security-operations-data-billing-retention
  *
- * mdca also models Shadow IT discovery, which that page does not list. The
- * whole source is left off the meter and the UI says the ISOC total is an
- * upper bound where the list is silent, rather than inventing a split.
+ * Tables named there:
+ * - Defender for Endpoint: DeviceEvents, DeviceFileEvents, DeviceLogonEvents,
+ *   DeviceNetworkEvents, DeviceProcessEvents and the other Device* tables.
+ *   The page does not limit those tables to workstations, so server Device*
+ *   telemetry (mde-servers) is treated as the same included data.
+ * - Defender for Identity: IdentityDirectoryEvents, IdentityLogonEvents,
+ *   IdentityQueryEvents and IdentityEvents.
+ * - Defender for Office 365: EmailEvents and the other email tables listed.
+ * - Microsoft Entra: EntraIdSignInEvents, EntraIdSpnSignInEvents and
+ *   GraphAPIAuditEvents.
+ *
+ * Defender for Cloud Apps is not in this set. The page lists CloudAppEvents,
+ * but this calculator's mdca source also models Shadow IT discovery, which
+ * the page does not list. There is no published split of that source, so the
+ * whole of it stays on the paid meter. That keeps the ISOC total an upper
+ * bound rather than understating the Shadow IT share.
  */
 export const ISOC_INCLUDED_ANALYTICS_SOURCE_IDS: ReadonlySet<string> = new Set([
   'entra-id',
@@ -75,7 +85,6 @@ export const ISOC_INCLUDED_ANALYTICS_SOURCE_IDS: ReadonlySet<string> = new Set([
   'mde-servers',
   'mdi',
   'mdo',
-  'mdca',
 ])
 
 /** How the Analytics-plan gigabytes in an estimate are billed. */

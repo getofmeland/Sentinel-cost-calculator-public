@@ -123,9 +123,9 @@ export function LicensingPanel({ value, onChange }: Props) {
         </label>
       </div>
       <p className="text-[11px] text-light/60 leading-relaxed">
-        From {formatUkDate(BILLING_RULES.defenderIsocOptInDate)}, Microsoft 365 E5, E7 and Defender Suite
-        customers can opt into Defender ISOC. Additional ingestion is then a flat per-GB rate with no
-        commitment tiers. This report still prices classic Sentinel.
+        From {formatUkDate(BILLING_RULES.defenderIsocOptInDate)}, existing Sentinel customers with Microsoft 365 E5,
+        E7 or Defender Suite can opt into Defender ISOC. Additional ingestion is then a per-GB rate.
+        The UK South price list for that meter has no commitment tiers. This report still prices classic Sentinel.
       </p>
     </div>
   )

@@ -86,13 +86,14 @@ export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: I
           )}
           {!isocSelected && (
             <p className="text-xs text-light/60 mt-1">
-              Defender ISOC {isocRateConverted}/GB flat
-              <span> · no commitment tiers</span>
+              Defender ISOC {isocRateConverted}/GB
+              <span> · UK South price list has no commitment tiers</span>
             </p>
           )}
           <p className="text-[11px] text-light/60 mt-1 leading-snug">
-            Opt-in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)} for Microsoft 365 E5 or E7.
-            Listed Defender and Entra data is not on this meter. Other sources stay on it, so the figure is an upper bound where Microsoft&apos;s list is silent.
+            Existing Sentinel customers with Microsoft 365 E5 or E7 can opt in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)}.
+            Listed Defender for Endpoint, Identity, Office 365 and Entra data is not on this meter.
+            Defender for Cloud Apps stays on it, because Shadow IT discovery is not on Microsoft&apos;s included list, so this figure is an upper bound.
           </p>
           {defenderIsocRateNote && (
             <p className="text-[11px] text-light/60 mt-1 leading-snug">{defenderIsocRateNote}</p>

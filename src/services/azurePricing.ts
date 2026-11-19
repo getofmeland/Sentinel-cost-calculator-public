@@ -41,9 +41,57 @@ export const DEFAULT_REGION = 'uksouth'
 export const REGIONAL_RATE_RETRY_NOTE =
   'UK South list price. Checking this region\'s published rate again.'
 
-/** Shown after that refetch still finds no meter. */
+/** Shown after that refetch still finds no meter in a successful price list. */
 export const REGIONAL_RATE_UNPUBLISHED_NOTE =
   'This region has no published meter for this rate. Showing the UK South list price.'
+
+/** A failed or unreadable lookup. This is not evidence the meter is unpublished. */
+export const REGIONAL_RATE_UNCONFIRMED_NOTE =
+  'UK South list price. This region\'s rate could not be confirmed.'
+
+export type OptionalMeterLookup = 'live' | 'absent' | 'unavailable' | 'cached'
+
+export interface RateMiss {
+  count: number
+  kind: 'absent' | 'unavailable'
+}
+
+/**
+ * Decide the sentence beside a fallback rate.
+ * Only a fresh, successful price list with no matching meter can become
+ * "no published meter". A thrown request, or a value served from the short
+ * cache, is "could not be confirmed" until a successful empty list says otherwise.
+ */
+export function nextRegionalRateNote(
+  lookup: OptionalMeterLookup,
+  previous: RateMiss | undefined,
+): { note: string | null; miss: RateMiss | undefined; retry: boolean } {
+  if (lookup === 'live') return { note: null, miss: undefined, retry: false }
+  if (lookup === 'cached') {
+    if (!previous) return { note: REGIONAL_RATE_UNCONFIRMED_NOTE, miss: undefined, retry: false }
+    const retry = previous.count < 2
+    const note = previous.kind === 'absent' && !retry
+      ? REGIONAL_RATE_UNPUBLISHED_NOTE
+      : previous.count >= 2
+        ? REGIONAL_RATE_UNCONFIRMED_NOTE
+        : REGIONAL_RATE_RETRY_NOTE
+    return { note, miss: previous, retry }
+  }
+  const count = (previous?.count ?? 0) + 1
+  const retry = count < 2
+  if (lookup === 'unavailable') {
+    return {
+      note: retry ? REGIONAL_RATE_RETRY_NOTE : REGIONAL_RATE_UNCONFIRMED_NOTE,
+      miss: { count, kind: 'unavailable' },
+      retry,
+    }
+  }
+  return {
+    note: retry ? REGIONAL_RATE_RETRY_NOTE : REGIONAL_RATE_UNPUBLISHED_NOTE,
+    miss: { count, kind: 'absent' },
+    retry,
+  }
+}
 
 export function getRegionLabel(arm: string): string {
   for (const { regions } of AZURE_REGION_GROUPS) {
@@ -69,6 +117,8 @@ interface CacheEntry {
   shortTtl?: boolean
   defenderIsocRateIsFallback: boolean
   analyticsRetentionRateIsFallback: boolean
+  defenderIsocLookup: Exclude<OptionalMeterLookup, 'cached'>
+  analyticsRetentionLookup: Exclude<OptionalMeterLookup, 'cached'>
 }
 
 const cache = new Map<string, CacheEntry>()
@@ -128,13 +178,25 @@ async function fetchAll(filter: string, signal: AbortSignal): Promise<AzurePrice
 }
 
 /** A secondary price list is optional. Its failure must not drop the Sentinel rates. */
-async function fetchOptional(filter: string, signal: AbortSignal): Promise<AzurePriceItem[]> {
+async function fetchOptional(
+  filter: string,
+  signal: AbortSignal,
+): Promise<{ ok: true; items: AzurePriceItem[] } | { ok: false }> {
   try {
-    return await fetchAll(filter, signal)
+    return { ok: true, items: await fetchAll(filter, signal) }
   } catch (err) {
     console.warn('[azurePricing] Optional price query failed:', err)
-    return []
+    return { ok: false }
   }
+}
+
+function classifyOptional(
+  result: { ok: true; items: AzurePriceItem[] } | { ok: false },
+  parse: (items: AzurePriceItem[]) => number | null,
+): { rate: number | null; lookup: Exclude<OptionalMeterLookup, 'cached'> } {
+  if (!result.ok) return { rate: null, lookup: 'unavailable' }
+  const rate = parse(result.items)
+  return { rate, lookup: rate === null ? 'absent' : 'live' }
 }
 
 // ─── Parse helpers ────────────────────────────────────────────────────────────
@@ -256,6 +318,12 @@ export interface FetchResult {
   defenderIsocRateIsFallback: boolean
   /** True when analytics extended retention is the UK South constant */
   analyticsRetentionRateIsFallback: boolean
+  /**
+   * cached means this call did not ask the retail API again. absent is a
+   * successful list with no meter. unavailable is a failed request.
+   */
+  defenderIsocLookup: OptionalMeterLookup
+  analyticsRetentionLookup: OptionalMeterLookup
 }
 
 export async function fetchSentinelPricing(region: string): Promise<FetchResult> {
@@ -269,6 +337,8 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
         fetchedAt: cached.fetchedAt,
         defenderIsocRateIsFallback: cached.defenderIsocRateIsFallback,
         analyticsRetentionRateIsFallback: cached.analyticsRetentionRateIsFallback,
+        defenderIsocLookup: 'cached',
+        analyticsRetentionLookup: 'cached',
       }
     }
   }
@@ -317,6 +387,8 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
         isLive: false,
         defenderIsocRateIsFallback: true,
         analyticsRetentionRateIsFallback: true,
+        defenderIsocLookup: 'unavailable',
+        analyticsRetentionLookup: 'unavailable',
       }
       cache.set(region, entry)
       return {
@@ -325,13 +397,17 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
         fetchedAt: entry.fetchedAt,
         defenderIsocRateIsFallback: true,
         analyticsRetentionRateIsFallback: true,
+        defenderIsocLookup: 'unavailable',
+        analyticsRetentionLookup: 'unavailable',
       }
     }
 
-    const isocRate = parseDefenderIsoc(isocItems)
-    const retentionRate = parseAnalyticsRetention(retentionItems)
-    const defenderIsocRateIsFallback = isocRate === null
-    const analyticsRetentionRateIsFallback = retentionRate === null
+    const isoc = classifyOptional(isocItems, parseDefenderIsoc)
+    const retention = classifyOptional(retentionItems, parseAnalyticsRetention)
+    const isocRate = isoc.rate
+    const retentionRate = retention.rate
+    const defenderIsocRateIsFallback = isoc.lookup !== 'live'
+    const analyticsRetentionRateIsFallback = retention.lookup !== 'live'
 
     const bundle: PricingBundle = {
       paygRateUsd: paygRate ?? STATIC_PRICING_BUNDLE.paygRateUsd,
@@ -367,6 +443,8 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       shortTtl: partialFallback,
       defenderIsocRateIsFallback,
       analyticsRetentionRateIsFallback,
+      defenderIsocLookup: isoc.lookup,
+      analyticsRetentionLookup: retention.lookup,
     }
     cache.set(region, entry)
     return {
@@ -375,6 +453,8 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       fetchedAt: entry.fetchedAt,
       defenderIsocRateIsFallback,
       analyticsRetentionRateIsFallback,
+      defenderIsocLookup: isoc.lookup,
+      analyticsRetentionLookup: retention.lookup,
     }
   } catch (err) {
     console.warn(`[azurePricing] Failed to fetch pricing for '${region}':`, err)
@@ -387,6 +467,8 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       isFailure: true,
       defenderIsocRateIsFallback: true,
       analyticsRetentionRateIsFallback: true,
+      defenderIsocLookup: 'unavailable',
+      analyticsRetentionLookup: 'unavailable',
     }
     cache.set(region, entry)
     return {
@@ -395,6 +477,8 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       fetchedAt: entry.fetchedAt,
       defenderIsocRateIsFallback: true,
       analyticsRetentionRateIsFallback: true,
+      defenderIsocLookup: 'unavailable',
+      analyticsRetentionLookup: 'unavailable',
     }
   } finally {
     clearTimeout(timeout)

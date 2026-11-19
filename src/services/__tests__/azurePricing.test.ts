@@ -15,7 +15,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
 
-import { parsePayg, parseTiers, parseDataLake, parseDefenderIsoc, parseAnalyticsRetention, fetchSentinelPricing, clearRegionCache, FAILURE_CACHE_TTL_MS, type AzurePriceItem } from '../azurePricing'
+import { parsePayg, parseTiers, parseDataLake, parseDefenderIsoc, parseAnalyticsRetention, fetchSentinelPricing, clearRegionCache, FAILURE_CACHE_TTL_MS, nextRegionalRateNote, REGIONAL_RATE_UNCONFIRMED_NOTE, REGIONAL_RATE_UNPUBLISHED_NOTE, REGIONAL_RATE_RETRY_NOTE, type AzurePriceItem } from '../azurePricing'
 import { STATIC_PRICING_BUNDLE, PAYG_RATE_USD_PER_GB, DATA_LAKE_RATE_USD_PER_GB, DEFENDER_ISOC_RATE_USD_PER_GB } from '../../data/pricing'
 import fixture from './sentinel-uksouth.fixture.json'
 
@@ -198,7 +198,7 @@ describe('fetchSentinelPricing optional meters', () => {
     vi.useRealTimers()
   })
 
-  it('keeps a missing ISOC meter on the UK South fallback and retries after the short TTL', async () => {
+  it('keeps a successful empty ISOC list on the short-lived UK South fallback, then allows another fetch once that cache expires', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = decodeURIComponent(String(input))
       if (url.includes('Microsoft Defender ISOC')) return priceResponse({ Items: [] })
@@ -212,6 +212,7 @@ describe('fetchSentinelPricing optional meters', () => {
 
     const first = await fetchSentinelPricing(region)
     expect(first.isLive).toBe(true)
+    expect(first.defenderIsocLookup).toBe('absent')
     expect(first.defenderIsocRateIsFallback).toBe(true)
     expect(first.analyticsRetentionRateIsFallback).toBe(false)
     expect(first.bundle.defenderIsocRateUsd).toBe(DEFENDER_ISOC_RATE_USD_PER_GB)
@@ -235,8 +236,30 @@ describe('fetchSentinelPricing optional meters', () => {
       return priceResponse(sentinel)
     }))
     const result = await fetchSentinelPricing(region)
+    expect(result.defenderIsocLookup).toBe('unavailable')
     expect(result.defenderIsocRateIsFallback).toBe(true)
     expect(result.bundle.paygRateUsd).toBe(4.3)
     expect(result.isLive).toBe(true)
+  })
+})
+
+describe('nextRegionalRateNote', () => {
+  it('calls a rate unpublished only after a second successful empty list', () => {
+    const first = nextRegionalRateNote('absent', undefined)
+    expect(first.note).toBe(REGIONAL_RATE_RETRY_NOTE)
+    expect(first.retry).toBe(true)
+    const second = nextRegionalRateNote('absent', first.miss)
+    expect(second.note).toBe(REGIONAL_RATE_UNPUBLISHED_NOTE)
+    expect(second.retry).toBe(false)
+  })
+
+  it('does not treat a failed request or a cached fallback as proof the meter is unpublished', () => {
+    const failed = nextRegionalRateNote('unavailable', undefined)
+    expect(failed.note).toBe(REGIONAL_RATE_RETRY_NOTE)
+    const again = nextRegionalRateNote('unavailable', failed.miss)
+    expect(again.note).toBe(REGIONAL_RATE_UNCONFIRMED_NOTE)
+    const cached = nextRegionalRateNote('cached', undefined)
+    expect(cached.note).toBe(REGIONAL_RATE_UNCONFIRMED_NOTE)
+    expect(cached.retry).toBe(false)
   })
 })

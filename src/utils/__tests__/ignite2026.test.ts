@@ -27,7 +27,15 @@ import {
   includedSecurityCopilotScus,
 } from '../../data/licenceBenefits'
 import { computeLicenceBenefits } from '../licenceBenefits'
-import { computeTierOptions, defenderIsocMonthlyUsd, splitIsocAnalyticsGb } from '../tiers'
+import {
+  computeTierOptions,
+  defenderIsocMonthlyUsd,
+  isocAnalyticsBaselineGb,
+  isocSavingVersusClassicMonthly,
+  promoTierSignupOpen,
+  splitIsocAnalyticsGb,
+  ukCalendarDate,
+} from '../tiers'
 import { clampLicensedSeats, coerceAnalyticsBilling } from '../shareState'
 import { formatUkDate } from '../dates'
 import type { SourceEstimateRow } from '../ingestion'
@@ -77,12 +85,14 @@ describe('Defender ISOC paid volume', () => {
     const split = splitIsocAnalyticsGb([
       { source: { id: 'mde', isFree: false }, gbPerDay: 4, logTier: 'analytics' },
       { source: { id: 'entra-id', isFree: false }, gbPerDay: 1, logTier: 'analytics' },
+      { source: { id: 'mdca', isFree: false }, gbPerDay: 2.5, logTier: 'analytics' },
       { source: { id: 'dns', isFree: false }, gbPerDay: 6, logTier: 'analytics' },
       { source: { id: 'azure-activity', isFree: true }, gbPerDay: 2, logTier: 'analytics' },
       { source: { id: 'mde', isFree: false }, gbPerDay: 3, logTier: 'data-lake' },
     ])
     expect(split.includedGbPerDay).toBe(5)
-    expect(split.paidGbPerDay).toBe(6)
+    // Defender for Cloud Apps stays paid: Shadow IT is not on the included list.
+    expect(split.paidGbPerDay).toBe(8.5)
   })
 
   it('does not let a Sentinel grant shrink the ISOC charge', () => {
@@ -118,12 +128,38 @@ describe('Defender ISOC billing', () => {
     expect(options.filter(o => o.isRecommended)).toHaveLength(1)
   })
 
-  it('stops recommending the 50 GB promo after sign-ups close', () => {
-    const during = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2026-12-31T00:00:00Z'))
-    const after = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2027-01-01T00:00:00Z'))
+  it('keeps the 50 GB tier on the ladder but does not recommend it for a new estimate after sign-ups close', () => {
+    const during = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2026-12-31T12:00:00Z'), true)
+    const after = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2027-01-01T12:00:00Z'), false)
     expect(during.some(o => o.tier?.gbPerDay === 50)).toBe(true)
-    expect(after.some(o => o.tier?.gbPerDay === 50)).toBe(false)
-    expect(after.find(o => o.isRecommended)?.tier?.isPreviewPromo).toBeUndefined()
+    expect(during.find(o => o.isRecommended)?.tier?.gbPerDay).toBe(50)
+    expect(after.some(o => o.tier?.gbPerDay === 50)).toBe(true)
+    expect(after.find(o => o.isRecommended)?.tier?.gbPerDay).not.toBe(50)
+  })
+
+  it('uses the UK civil date for the promo deadline, including during British Summer Time', () => {
+    // 31 July 2026 23:30 UTC is 1 August in London (BST, UTC+1), not 31 July.
+    expect(ukCalendarDate(new Date('2026-07-31T23:30:00Z'))).toBe('2026-08-01')
+    // 31 December 2026 23:30 UTC is still 31 December in London, so sign-ups are open.
+    expect(ukCalendarDate(new Date('2026-12-31T23:30:00Z'))).toBe('2026-12-31')
+    expect(promoTierSignupOpen(new Date('2026-12-31T23:30:00Z'))).toBe(true)
+    // 1 January 2027 00:30 UTC is 1 January in London.
+    expect(promoTierSignupOpen(new Date('2027-01-01T00:30:00Z'))).toBe(false)
+  })
+
+  it('prices an included source moved to the Data Lake at zero in the all-Analytics baseline', () => {
+    const rows = [
+      { source: { id: 'dns', isFree: false }, gbPerDay: 6, logTier: 'analytics' },
+      { source: { id: 'mde', isFree: false }, gbPerDay: 4, logTier: 'data-lake' },
+      { source: { id: 'firewall', isFree: false }, gbPerDay: 3, logTier: 'data-lake' },
+    ]
+    const split = splitIsocAnalyticsGb(rows)
+    expect(isocAnalyticsBaselineGb(rows, split.paidGbPerDay)).toBe(9)
+  })
+
+  it('compares ISOC with the classic Analytics month even when additional volume is zero', () => {
+    expect(isocSavingVersusClassicMonthly(120, 0)).toBe(120)
+    expect(isocSavingVersusClassicMonthly(40, 90)).toBe(-50)
   })
 })
 
@@ -156,6 +192,11 @@ describe('Microsoft 365 data grant families', () => {
 })
 
 describe('Security Copilot inclusion', () => {
+  it('uses licensed seats rather than headcount', () => {
+    expect(includedSecurityCopilotScus(400)).toBe(160)
+    expect(includedSecurityCopilotScus(1000)).toBe(400)
+  })
+
   it('matches the published examples and the monthly cap', () => {
     expect(includedSecurityCopilotScus(400)).toBe(160)
     expect(includedSecurityCopilotScus(4000)).toBe(1600)

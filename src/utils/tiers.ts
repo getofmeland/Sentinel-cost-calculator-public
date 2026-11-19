@@ -70,15 +70,47 @@ export function splitIsocAnalyticsGb(
     if (ISOC_INCLUDED_ANALYTICS_SOURCE_IDS.has(row.source.id)) included += row.gbPerDay
     else paid += row.gbPerDay
   }
-  return {
-    paidGbPerDay: Math.round(paid * 100) / 100,
-    includedGbPerDay: Math.round(included * 100) / 100,
-  }
+  return { paidGbPerDay: paid, includedGbPerDay: included }
 }
 
-/** True on the signup deadline and earlier. New customers cannot take the 50 GB promo after that day. */
+/**
+ * Calendar date in Europe/London as YYYY-MM-DD. The 50 GB sign-up deadline is
+ * a UK date, so UTC would close the promo an hour early during British Summer Time.
+ */
+export function ukCalendarDate(asOf: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(asOf)
+}
+
+/** True on the signup deadline and earlier, in UK civil time. */
 export function promoTierSignupOpen(asOf: Date = new Date()): boolean {
-  return asOf.toISOString().slice(0, 10) <= BILLING_RULES.promoTierSignupDeadline
+  return ukCalendarDate(asOf) <= BILLING_RULES.promoTierSignupDeadline
+}
+
+/**
+ * Gigabytes that would be billed at the ISOC rate if every non-included source
+ * were on Analytics. Included Defender and Entra data is $0 on Analytics, including
+ * when it currently sits in the Data Lake, so it is not part of this baseline.
+ */
+export function isocAnalyticsBaselineGb(
+  rows: ReadonlyArray<{ source: { id: string; isFree?: boolean }; gbPerDay: number; logTier: string }>,
+  paidAnalyticsGbPerDay: number,
+): number {
+  const lakeGb = rows.reduce((sum, row) => {
+    if (row.logTier !== 'data-lake' || row.source.isFree) return sum
+    if (ISOC_INCLUDED_ANALYTICS_SOURCE_IDS.has(row.source.id)) return sum
+    return sum + row.gbPerDay
+  }, 0)
+  return paidAnalyticsGbPerDay + lakeGb
+}
+
+/** Positive when ISOC costs less than the recommended classic Analytics month. */
+export function isocSavingVersusClassicMonthly(classicAnalyticsMonthlyUsd: number, isocMonthlyUsd: number): number {
+  return classicAnalyticsMonthlyUsd - isocMonthlyUsd
 }
 
 export function computeTierOptions(
@@ -86,10 +118,14 @@ export function computeTierOptions(
   pricing: PricingBundle = STATIC_PRICING_BUNDLE,
   fxRate: number = EXCHANGE_RATE_USD_TO_GBP,
   asOf: Date = new Date(),
+  /**
+   * New estimates pass promoTierSignupOpen(). Analyse mode leaves this true so
+   * a customer who already locked the 50 GB price can still be recommended it.
+   * The tier stays on the ladder either way.
+   */
+  recommendPromoTier: boolean = true,
 ): TierOption[] {
-  const tiers = promoTierSignupOpen(asOf)
-    ? pricing.commitmentTiers
-    : pricing.commitmentTiers.filter(tier => !tier.isPreviewPromo)
+  void asOf
   const paygDailyCostUsd = billableGbPerDay * pricing.paygRateUsd
 
   const paygOption: TierOption = {
@@ -105,7 +141,7 @@ export function computeTierOptions(
     breakevenGbPerDay: null,
   }
 
-  const tierOptions: TierOption[] = tiers.map(tier => {
+  const tierOptions: TierOption[] = pricing.commitmentTiers.map(tier => {
     const dailyCostUsd = costAtVolume(tier, billableGbPerDay)
     const savingsVsPaygPct =
       paygDailyCostUsd > 0 ? (paygDailyCostUsd - dailyCostUsd) / paygDailyCostUsd : null
@@ -125,10 +161,13 @@ export function computeTierOptions(
   })
 
   const allOptions = [paygOption, ...tierOptions]
+  const candidates = recommendPromoTier
+    ? allOptions
+    : allOptions.filter(option => !option.tier?.isPreviewPromo)
 
   // Find minimum cost — tie-break: prefer lower commitment (i.e. first in array)
-  const minCost = Math.min(...allOptions.map(o => o.dailyCostUsd))
-  const recommended = allOptions.find(o => o.dailyCostUsd === minCost)
+  const minCost = Math.min(...candidates.map(o => o.dailyCostUsd))
+  const recommended = candidates.find(o => o.dailyCostUsd === minCost)
   if (recommended) {
     recommended.isRecommended = true
   }

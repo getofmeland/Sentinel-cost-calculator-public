@@ -5,7 +5,7 @@ import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition, defaultSelectedRetenti
 import { M365Licence, LICENCES, isocBillingAllowed } from '../data/licenceBenefits'
 import { summariseIngestion, estimateSourceGbPerDay, scaledDeviceCount } from '../utils/ingestion'
 import { computeLicenceBenefits } from '../utils/licenceBenefits'
-import { computeTierOptions, defenderIsocMonthlyUsd, splitIsocAnalyticsGb } from '../utils/tiers'
+import { computeTierOptions, defenderIsocMonthlyUsd, promoTierSignupOpen, splitIsocAnalyticsGb } from '../utils/tiers'
 import { getDefaultTier } from '../data/tierPlacement'
 import { CompliancePresetId, getPreset } from '../data/compliancePresets'
 import { TshirtSize, TSHIRT_SIZES, DEFAULT_TSHIRT_SIZE, getSizeMultiplier } from '../data/tshirtSizes'
@@ -117,9 +117,20 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const [analyticsBilling, setAnalyticsBilling] = useState<AnalyticsBillingMode>(
     coerceAnalyticsBilling(restored?.analyticsBilling ?? 'classic', restored?.licence ?? 'none'),
   )
-  // Drop ISOC when the licence cannot opt in, including a restored share link.
-  const billing = coerceAnalyticsBilling(analyticsBilling, licence)
-  if (billing !== analyticsBilling) setAnalyticsBilling(billing)
+  // Drop ISOC when the licence cannot opt in, and restore it if they return to
+  // E5 or E7 in this session. A shared link with an ineligible licence starts classic.
+  const [isocHeldForEligibleLicence, setIsocHeldForEligibleLicence] = useState(
+    (restored?.analyticsBilling ?? 'classic') === 'defender-isoc' && !isocBillingAllowed(restored?.licence ?? 'none'),
+  )
+  const eligibleForIsoc = isocBillingAllowed(licence)
+  if (!eligibleForIsoc && analyticsBilling === 'defender-isoc') {
+    if (!isocHeldForEligibleLicence) setIsocHeldForEligibleLicence(true)
+    setAnalyticsBilling('classic')
+  } else if (eligibleForIsoc && isocHeldForEligibleLicence && analyticsBilling === 'classic') {
+    setIsocHeldForEligibleLicence(false)
+    setAnalyticsBilling('defender-isoc')
+  }
+  const billing = !eligibleForIsoc && analyticsBilling === 'defender-isoc' ? 'classic' : analyticsBilling
 
   // Region and currency live in PricingContext, so push the restored values up
   // once rather than duplicating that state here.
@@ -227,7 +238,13 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     summary.rows, summary.analyticsGbPerDay, licence,
     effectiveSeats, defenderEnabled, totalEnrolledServers, pricing,
   )
-  const commitmentOptions = computeTierOptions(licenceBenefits.billableAnalyticsGbPerDay, pricing, fxRate)
+  const commitmentOptions = computeTierOptions(
+    licenceBenefits.billableAnalyticsGbPerDay,
+    pricing,
+    fxRate,
+    new Date(),
+    promoTierSignupOpen(),
+  )
 
   const hasCustomPerSource = Object.keys(retentionStrategies).length > 0
 
@@ -795,6 +812,12 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           linuxServerGbPerDay={linuxServerGbPerDay}
         />
         <ComputeCostPanel config={computeConfig} onChange={setComputeConfig} />
+        {isocHeldForEligibleLicence && !eligibleForIsoc && (
+          <p className="text-sm text-light/80 rounded-lg border border-white/15 bg-surface px-4 py-3">
+            Defender ISOC needs Microsoft 365 E5 or E7, so this estimate is using classic Sentinel billing.
+            Choose E5 or E7 again in this session to turn Defender ISOC back on.
+          </p>
+        )}
         <TierComparison
           analyticsGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
           isocPaidGbPerDay={isocVolume.paidGbPerDay}

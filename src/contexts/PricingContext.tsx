@@ -5,8 +5,8 @@ import {
   clearRegionCache,
   getRegionLabel,
   FAILURE_CACHE_TTL_MS,
-  REGIONAL_RATE_RETRY_NOTE,
-  REGIONAL_RATE_UNPUBLISHED_NOTE,
+  nextRegionalRateNote,
+  type RateMiss,
 } from '../services/azurePricing'
 import { fetchFxRates } from '../services/fxRates'
 import { CurrencyCode } from '../utils/currency'
@@ -59,8 +59,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
   // double-invoke, so a fallback is not counted twice.
   const loadGeneration = useRef(0)
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isocMisses = useRef(new Map<string, number>())
-  const retentionMisses = useRef(new Map<string, number>())
+  const isocMisses = useRef(new Map<string, RateMiss>())
+  const retentionMisses = useRef(new Map<string, RateMiss>())
 
   const loadPricing = useCallback(async (arm: string) => {
     const generation = ++loadGeneration.current
@@ -75,22 +75,25 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
         d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
       )
 
-      const noteFor = (failed: boolean, misses: Map<string, number>) => {
-        if (!result.isLive || !failed) {
+      const noteFor = (
+        lookup: typeof result.defenderIsocLookup,
+        misses: Map<string, RateMiss>,
+      ) => {
+        if (!result.isLive) {
           misses.delete(arm)
-          return null
+          return { note: null as string | null, retry: false }
         }
-        const n = (misses.get(arm) ?? 0) + 1
-        misses.set(arm, n)
-        // One automatic refetch. A second miss means the region published no meter.
-        return n >= 2 ? REGIONAL_RATE_UNPUBLISHED_NOTE : REGIONAL_RATE_RETRY_NOTE
+        const decided = nextRegionalRateNote(lookup, misses.get(arm))
+        if (decided.miss) misses.set(arm, decided.miss)
+        else misses.delete(arm)
+        return decided
       }
-      const isocNote = noteFor(result.defenderIsocRateIsFallback, isocMisses.current)
-      const retentionNote = noteFor(result.analyticsRetentionRateIsFallback, retentionMisses.current)
-      setDefenderIsocRateNote(isocNote)
-      setAnalyticsRetentionRateNote(retentionNote)
+      const isocDecided = noteFor(result.defenderIsocLookup, isocMisses.current)
+      const retentionDecided = noteFor(result.analyticsRetentionLookup, retentionMisses.current)
+      setDefenderIsocRateNote(isocDecided.note)
+      setAnalyticsRetentionRateNote(retentionDecided.note)
 
-      const retrying = isocNote === REGIONAL_RATE_RETRY_NOTE || retentionNote === REGIONAL_RATE_RETRY_NOTE
+      const retrying = isocDecided.retry || retentionDecided.retry
       if (retryTimer.current) clearTimeout(retryTimer.current)
       if (retrying) {
         retryTimer.current = setTimeout(() => {
