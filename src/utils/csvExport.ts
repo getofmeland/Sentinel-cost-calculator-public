@@ -60,7 +60,7 @@ export function buildEstimateCsv(o: CsvExportOptions): string {
     ['Azure region', o.region],
     ['Currency', o.currency],
     ['USD conversion rate', o.fxRate],
-    ['Analytics billing', isocSelected ? 'Defender ISOC (flat)' : 'Sentinel pay-as-you-go and commitment tiers'],
+    ['Analytics billing', isocSelected ? 'Defender ISOC' : 'Sentinel pay-as-you-go and commitment tiers'],
     ['Licensed seats', o.licensedSeats == null ? 'Assumed equal to user count' : o.licensedSeats],
     ['Note', 'Planning estimate based on public Azure list pricing. Not a quote.'],
     [],
@@ -113,13 +113,13 @@ export function buildEstimateCsv(o: CsvExportOptions): string {
     ['Pay-as-you-go baseline', money(o.paygMonthlyUsd)],
     ['With licence benefits', money(o.withSavingsMonthlyUsd)],
     isocSelected
-      ? ['Defender ISOC (flat, additional data only)', money(o.optimisedMonthlyUsd)]
+      ? ['Defender ISOC (additional data only)', money(o.optimisedMonthlyUsd)]
       : [`Commitment tier (${o.recommendedTierLabel})`, money(o.optimisedMonthlyUsd)],
   )
   if (isocSelected) {
     rows.push(['Note', isocRate === undefined
-      ? 'Defender ISOC was selected but no ISOC rate was supplied. Listed Defender and Entra Analytics rows are still zero. Other Analytics rows stay on classic rates. The scenario total is the ISOC total, not a commitment tier.'
-      : 'Listed Defender for Endpoint, Identity, Office 365 and Entra rows are included with ISOC. Defender for Cloud Apps stays on the paid meter because this estimate also models Shadow IT discovery, which the billing page does not list, so the total is an upper bound. Other additional Analytics rows use the ISOC rate. Data Lake rows stay on the Data Lake rate. Licence grants are not applied to the ISOC total.'])
+      ? 'Defender ISOC was selected but no ISOC rate was supplied. Listed Defender for Endpoint, Identity and Office 365 rows are still zero. Entra ID and other Analytics rows stay on classic rates. The scenario total is the ISOC total, not a commitment tier.'
+      : 'Listed Defender for Endpoint, Identity and Office 365 rows are included with ISOC. Entra ID stays on the paid meter because this source also models directory audit and sign-in tables the included list does not name. Defender for Cloud Apps stays on the paid meter because it also models unlisted Shadow IT discovery. Other additional Analytics rows use the ISOC rate. Data Lake rows stay on the Data Lake rate. Licence grants are not applied to the ISOC total. Keeping the unsplit sources on the meter makes the total an upper bound.'])
   }
 
   return toCsv(rows)

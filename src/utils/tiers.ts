@@ -74,8 +74,10 @@ export function splitIsocAnalyticsGb(
 }
 
 /**
- * Calendar date in Europe/London as YYYY-MM-DD. The 50 GB sign-up deadline is
- * a UK date, so UTC would close the promo an hour early during British Summer Time.
+ * Calendar date in Europe/London as YYYY-MM-DD.
+ * 31 December is GMT (UTC+0), not British Summer Time. The London zone still
+ * matters for dates that fall in BST, when an evening UTC timestamp is already
+ * the next civil day in the UK.
  */
 export function ukCalendarDate(asOf: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -86,9 +88,14 @@ export function ukCalendarDate(asOf: Date = new Date()): string {
   }).format(asOf)
 }
 
-/** True on the signup deadline and earlier, in UK civil time. */
+/** True on the signup deadline and earlier, in UK civil time. New estimates use this. */
 export function promoTierSignupOpen(asOf: Date = new Date()): boolean {
   return ukCalendarDate(asOf) <= BILLING_RULES.promoTierSignupDeadline
+}
+
+/** True while a customer who signed up in time still holds the 50 GB price, in UK civil time. */
+export function promoTierLockOpen(asOf: Date = new Date()): boolean {
+  return ukCalendarDate(asOf) <= BILLING_RULES.promoTierExpiryDate
 }
 
 /**
@@ -117,15 +124,13 @@ export function computeTierOptions(
   billableGbPerDay: number,
   pricing: PricingBundle = STATIC_PRICING_BUNDLE,
   fxRate: number = EXCHANGE_RATE_USD_TO_GBP,
-  asOf: Date = new Date(),
   /**
-   * New estimates pass promoTierSignupOpen(). Analyse mode leaves this true so
-   * a customer who already locked the 50 GB price can still be recommended it.
-   * The tier stays on the ladder either way.
+   * New estimates pass promoTierSignupOpen(). Analyse mode passes
+   * promoTierLockOpen(), which stays true until 31 March 2027. The 50 GB tier
+   * stays on the ladder either way; this only controls the recommendation.
    */
   recommendPromoTier: boolean = true,
 ): TierOption[] {
-  void asOf
   const paygDailyCostUsd = billableGbPerDay * pricing.paygRateUsd
 
   const paygOption: TierOption = {

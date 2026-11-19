@@ -90,9 +90,10 @@ describe('Defender ISOC paid volume', () => {
       { source: { id: 'azure-activity', isFree: true }, gbPerDay: 2, logTier: 'analytics' },
       { source: { id: 'mde', isFree: false }, gbPerDay: 3, logTier: 'data-lake' },
     ])
-    expect(split.includedGbPerDay).toBe(5)
-    // Defender for Cloud Apps stays paid: Shadow IT is not on the included list.
-    expect(split.paidGbPerDay).toBe(8.5)
+    expect(split.includedGbPerDay).toBe(4)
+    // Entra ID and Defender for Cloud Apps stay paid. Each mixes listed tables
+    // with tables the ISOC page does not name, and neither source has a split.
+    expect(split.paidGbPerDay).toBe(9.5)
   })
 
   it('does not let a Sentinel grant shrink the ISOC charge', () => {
@@ -129,8 +130,8 @@ describe('Defender ISOC billing', () => {
   })
 
   it('keeps the 50 GB tier on the ladder but does not recommend it for a new estimate after sign-ups close', () => {
-    const during = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2026-12-31T12:00:00Z'), true)
-    const after = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2027-01-01T12:00:00Z'), false)
+    const during = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, true)
+    const after = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, false)
     expect(during.some(o => o.tier?.gbPerDay === 50)).toBe(true)
     expect(during.find(o => o.isRecommended)?.tier?.gbPerDay).toBe(50)
     expect(after.some(o => o.tier?.gbPerDay === 50)).toBe(true)

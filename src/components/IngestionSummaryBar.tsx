@@ -92,8 +92,10 @@ export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: I
           )}
           <p className="text-[11px] text-light/60 mt-1 leading-snug">
             Existing Sentinel customers with Microsoft 365 E5 or E7 can opt in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)}.
-            Listed Defender for Endpoint, Identity, Office 365 and Entra data is not on this meter.
-            Defender for Cloud Apps stays on it, because Shadow IT discovery is not on Microsoft&apos;s included list, so this figure is an upper bound.
+            Listed Defender for Endpoint, Identity and Office 365 data is not on this meter.
+            CloudAppEvents are on Microsoft&apos;s included list, but Defender for Cloud Apps stays on the meter because this source also models unlisted Shadow IT discovery.
+            Entra ID stays on the meter too: the included list names sign-in and Graph API audit tables, and this source also models directory audit and other sign-in tables that list does not name.
+            There is no published split, so this figure is an upper bound.
           </p>
           {defenderIsocRateNote && (
             <p className="text-[11px] text-light/60 mt-1 leading-snug">{defenderIsocRateNote}</p>

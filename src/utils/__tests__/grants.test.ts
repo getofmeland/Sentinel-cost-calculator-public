@@ -279,12 +279,30 @@ describe('promotional tiers are disclosed', () => {
   it('names the expiry when a preview promo tier is recommended', () => {
     // The 50 GB/day tier is a time-limited preview. Estimate mode said so;
     // Analyse mode did not, so an expiring saving could reach a deliverable.
-    const r = analyse(`TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${mb(60)}`, NO_LICENCE)
+    const r = analyseUsage(
+      parseUsagePaste(`TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${mb(60)}`, 31),
+      STATIC_PRICING_BUNDLE,
+      undefined,
+      NO_LICENCE,
+      new Date('2026-11-19T12:00:00Z'),
+    )
     const opp = r.opportunities.find(o => o.kind === 'commitment-tier')
     expect(opp?.title).toContain('50 GB/day')
     expect(opp?.detail).toMatch(/promotional tier/i)
     expect(opp?.detail).toMatch(/31 December 2026/)
     expect(opp?.detail).toMatch(/31 March 2027/)
+  })
+
+  it('does not recommend the 50 GB tier after the price lock ends', () => {
+    const r = analyseUsage(
+      parseUsagePaste(`TableName\tPlan\tBillableMB\nSigninLogs\tAnalytics\t${mb(60)}`, 31),
+      STATIC_PRICING_BUNDLE,
+      undefined,
+      NO_LICENCE,
+      new Date('2027-04-01T12:00:00Z'),
+    )
+    const titled = r.opportunities.map(o => o.title).join(' ')
+    expect(titled).not.toContain('50 GB/day')
   })
 })
 

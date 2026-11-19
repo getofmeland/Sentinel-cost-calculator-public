@@ -55,7 +55,7 @@ describe('toCsv', () => {
 
 const summary = {
   rows: [
-    { source: { id: 'entra-id', label: 'Entra ID', isFree: false }, gbPerDay: 4, logTier: 'analytics', dailyCostUsd: 21.52, retentionDays: 90, retentionMonthlyCostUsd: 0 },
+    { source: { id: 'mde', label: 'Defender for Endpoint', isFree: false }, gbPerDay: 4, logTier: 'analytics', dailyCostUsd: 21.52, retentionDays: 90, retentionMonthlyCostUsd: 0 },
     { source: { id: 'dns', label: 'DNS', isFree: false }, gbPerDay: 6, logTier: 'analytics', dailyCostUsd: 32.28, retentionDays: 90, retentionMonthlyCostUsd: 0 },
     { source: { id: 'azure-activity', label: 'Azure Activity', isFree: true }, gbPerDay: 1, logTier: 'analytics', dailyCostUsd: 0, retentionDays: 90, retentionMonthlyCostUsd: 0 },
     { source: { id: 'dns-lake', label: 'Firewall', isFree: false }, gbPerDay: 8, logTier: 'data-lake', dailyCostUsd: 1.5, retentionDays: 30, retentionMonthlyCostUsd: 0.2 },
@@ -93,7 +93,7 @@ describe('buildEstimateCsv', () => {
       licensedSeats: 400,
       optimisedMonthlyUsd: 6 * 2.88 * DAYS_PER_MONTH,
     })
-    expect(csv).toContain('Defender ISOC (flat, additional data only)')
+    expect(csv).toContain('Defender ISOC (additional data only)')
     expect(csv).not.toContain('Commitment tier')
     expect(csv).toContain('Included with ISOC')
     expect(csv).toContain('No (free)')
@@ -104,7 +104,7 @@ describe('buildEstimateCsv', () => {
 
   it('still names Defender ISOC when the rate was not supplied', () => {
     const csv = buildEstimateCsv({ ...base, analyticsBilling: 'defender-isoc' })
-    expect(csv).toContain('Defender ISOC (flat, additional data only)')
+    expect(csv).toContain('Defender ISOC (additional data only)')
     expect(csv).not.toContain('Commitment tier')
   })
 })

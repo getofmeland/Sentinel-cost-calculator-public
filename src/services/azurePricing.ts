@@ -324,6 +324,8 @@ export interface FetchResult {
    */
   defenderIsocLookup: OptionalMeterLookup
   analyticsRetentionLookup: OptionalMeterLookup
+  /** True when this result was served from the in-memory cache, not a new retail query. */
+  fromCache: boolean
 }
 
 export async function fetchSentinelPricing(region: string): Promise<FetchResult> {
@@ -337,8 +339,11 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
         fetchedAt: cached.fetchedAt,
         defenderIsocRateIsFallback: cached.defenderIsocRateIsFallback,
         analyticsRetentionRateIsFallback: cached.analyticsRetentionRateIsFallback,
-        defenderIsocLookup: 'cached',
-        analyticsRetentionLookup: 'cached',
+        // A live rate must stay 'live' on a later visit. Returning the synthetic
+        // value 'cached' made the UI call it an unconfirmed UK South fallback.
+        defenderIsocLookup: cached.defenderIsocLookup,
+        analyticsRetentionLookup: cached.analyticsRetentionLookup,
+        fromCache: true,
       }
     }
   }
@@ -399,6 +404,7 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
         analyticsRetentionRateIsFallback: true,
         defenderIsocLookup: 'unavailable',
         analyticsRetentionLookup: 'unavailable',
+        fromCache: false,
       }
     }
 
@@ -455,6 +461,7 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       analyticsRetentionRateIsFallback,
       defenderIsocLookup: isoc.lookup,
       analyticsRetentionLookup: retention.lookup,
+      fromCache: false,
     }
   } catch (err) {
     console.warn(`[azurePricing] Failed to fetch pricing for '${region}':`, err)
@@ -479,6 +486,7 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       analyticsRetentionRateIsFallback: true,
       defenderIsocLookup: 'unavailable',
       analyticsRetentionLookup: 'unavailable',
+      fromCache: false,
     }
   } finally {
     clearTimeout(timeout)

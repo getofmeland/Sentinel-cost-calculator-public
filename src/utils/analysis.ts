@@ -1,11 +1,11 @@
-import { PricingBundle, STATIC_PRICING_BUNDLE, DAYS_PER_MONTH, BILLING_RULES } from '../data/pricing'
+import { PricingBundle, STATIC_PRICING_BUNDLE, DAYS_PER_MONTH, BILLING_RULES, EXCHANGE_RATE_USD_TO_GBP } from '../data/pricing'
 import { formatUkDate } from './dates'
 import {
   matchTable, guessTable, attributeTable, isAlwaysFreeTable, type TableMatch,
 } from '../data/tableIndex'
 import type { ConnectorAttribution } from '../data/connectorIndex'
 import type { TableGuess } from '../data/tableCatalogue'
-import { computeTierOptions, costAtVolume, tierLabel } from './tiers'
+import { computeTierOptions, costAtVolume, promoTierLockOpen, tierLabel } from './tiers'
 import { sizeTierOnDailyVolume, type DailySizingResult } from './tierSizing'
 import { transformsForTable, type DcrTransform } from '../data/dcrTransforms'
 import {
@@ -225,6 +225,8 @@ export function analyseUsage(
    */
   analyticsGbByDay?: number[],
   licensing?: LicensingInput,
+  /** UK-date gate for the 50 GB price lock. Defaults to now. */
+  asOf: Date = new Date(),
 ): AnalysisResult {
   // ── Free-ingestion grants, applied before anything is costed ─────────────
   const p2AllowanceGbPerDay = licensing?.defenderServersP2Enabled
@@ -522,7 +524,7 @@ export function analyseUsage(
   // rate — not pay-as-you-go, which the mode used to assume for everyone.
   const existingTier = committedTier
 
-  const options = computeTierOptions(analyticsRemaining, pricing)
+  const options = computeTierOptions(analyticsRemaining, pricing, EXCHANGE_RATE_USD_TO_GBP, promoTierLockOpen(asOf))
   const payg = options.find(o => o.isPayg)!
   const averageRecommended = options.find(o => o.isRecommended && !o.isPayg)
 

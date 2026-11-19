@@ -197,7 +197,7 @@ export function CostSummary({
               }}
               className="text-sm border border-white/15 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-light"
             >
-              {isocEligible && <option value="defender-isoc">Defender ISOC (flat)</option>}
+              {isocEligible && <option value="defender-isoc">Defender ISOC</option>}
               {tierOptions.map(o => (
                 <option key={o.label} value={o.label}>
                   {o.label}{o.isRecommended ? ' ★ Recommended' : ''}
@@ -246,7 +246,7 @@ export function CostSummary({
                 )}
                 {isocSelected && (
                   <span className="block text-[10px] text-light/60 font-normal">
-                    flat rate
+                    additional data
                   </span>
                 )}
               </td>

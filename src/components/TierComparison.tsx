@@ -35,7 +35,7 @@ export function TierComparison({
 }: Props) {
   const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateNote } = usePricing()
   const isocEligible = isocBillingAllowed(licence)
-  const options = computeTierOptions(analyticsGbPerDay, pricing, fxRate, new Date(), promoTierSignupOpen())
+  const options = computeTierOptions(analyticsGbPerDay, pricing, fxRate, promoTierSignupOpen())
   const isocDaily = isocPaidGbPerDay * pricing.defenderIsocRateUsd
   const isocMonthly = defenderIsocMonthlyUsd(isocPaidGbPerDay, pricing.defenderIsocRateUsd)
   // A UK South ISOC fallback must not be compared with another region's live pay-as-you-go rate.
@@ -105,7 +105,7 @@ export function TierComparison({
                 <span className="block text-xs text-light/60 mt-1">
                   {fmt(Math.abs(vsClassic), 0)}/month {vsClassic >= 0 ? 'under' : 'above'} the recommended classic Analytics cost
                   {isocPaidGbPerDay > 0 && vsPaygPct !== 0 && (
-                    <> · {vsPaygPct.toFixed(0)}% {vsPaygPct > 0 ? 'under' : 'above'} {defenderIsocRateNote ? 'the UK South pay-as-you-go rate' : 'pay-as-you-go on that additional volume'}</>
+                    <> · {Math.abs(vsPaygPct).toFixed(0)}% {vsPaygPct > 0 ? 'under' : 'above'} {defenderIsocRateNote ? 'the UK South pay-as-you-go rate' : 'pay-as-you-go on that additional volume'}</>
                   )}.
                 </span>
               )}
@@ -117,7 +117,7 @@ export function TierComparison({
         </div>
         <p className="text-xs text-light/60 mt-3 leading-relaxed">
           {isocEligible
-            ? `Existing Sentinel customers with Microsoft 365 E5 or E7 can opt in from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)}. The announcement also names Microsoft Defender Suite, which this calculator does not model as its own licence. ${isocIncludedGbPerDay.toFixed(2)} GB/day of listed Defender for Endpoint (including server Device* telemetry), Identity, Office 365 and Entra data is left off the charge. Defender for Cloud Apps stays on the paid meter: this estimate mixes included CloudAppEvents with Shadow IT discovery, which the billing page does not list, and there is no published split. Keeping that source on the meter makes the total an upper bound.`
+            ? `Existing Sentinel customers with Microsoft 365 E5 or E7 can opt in from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)}. The announcement also names Microsoft Defender Suite, which this calculator does not model as its own licence. ${isocIncludedGbPerDay.toFixed(2)} GB/day of listed Defender for Endpoint (including server Device* telemetry), Identity and Office 365 data is left off the charge. Entra ID stays on the paid meter: the billing page lists sign-in and Graph API audit tables, but this source also models non-interactive sign-ins, managed-identity sign-ins and directory audit logs, which that list does not name. Defender for Cloud Apps stays on the paid meter for the same reason: it mixes included CloudAppEvents with unlisted Shadow IT discovery. There is no published split of either source, so keeping them on the meter makes the total an upper bound.`
             : `Existing Sentinel customers can opt into Defender ISOC from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)} with Microsoft 365 E5 or E7. Select one of those licences to use this rate.`}
         </p>
       </fieldset>
@@ -136,9 +136,10 @@ export function TierComparison({
       <div className="px-6 pb-5 text-xs text-light/60 space-y-1">
         <p>
           * The 50 GB/day tier is a public preview promotion. New sign-ups close on{' '}
-          {formatUkDate(BILLING_RULES.promoTierSignupDeadline)}. Customers who sign up by then keep the
-          promotional price until {formatUkDate(BILLING_RULES.promoTierExpiryDate)}. After that, the minimum
-          commitment tier is {BILLING_RULES.minimumTierWithoutPromoGbPerDay} GB/day.
+          {formatUkDate(BILLING_RULES.promoTierSignupDeadline)}. It is not available to new sign-ups after that
+          date, and it stays listed for customers who already hold it. Those customers keep the promotional
+          price until {formatUkDate(BILLING_RULES.promoTierExpiryDate)}. The smallest new commitment after
+          sign-ups close is {BILLING_RULES.minimumTierWithoutPromoGbPerDay} GB/day.
         </p>
         <p>
           ** Commitment tier changes require a {BILLING_RULES.downgradeWaitDays}-day wait before downgrading.

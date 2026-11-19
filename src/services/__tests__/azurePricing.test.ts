@@ -194,6 +194,7 @@ describe('fetchSentinelPricing optional meters', () => {
 
   afterEach(() => {
     clearRegionCache(region)
+    clearRegionCache('eastus-revisit')
     vi.unstubAllGlobals()
     vi.useRealTimers()
   })
@@ -226,6 +227,57 @@ describe('fetchSentinelPricing optional meters', () => {
     vi.setSystemTime(start + FAILURE_CACHE_TTL_MS + 1_000)
     await fetchSentinelPricing(region)
     expect(fetchMock.mock.calls.length).toBeGreaterThan(calls)
+  })
+
+  it('keeps a live regional ISOC rate when the region is read again inside the 24 hour cache', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input))
+      if (url.includes('Microsoft Defender ISOC')) {
+        return priceResponse({
+          Items: [{
+            meterName: 'Pay As You Go Analysis',
+            retailPrice: 2.4,
+            unitOfMeasure: '1 GB',
+            armRegionName: 'eastus',
+            productName: 'Microsoft Defender ISOC',
+          }],
+        })
+      }
+      if (url.includes('Log Analytics')) return priceResponse(retention)
+      return priceResponse({
+        Items: [{
+          meterName: 'Pay-as-you-go Analysis',
+          retailPrice: 4.3,
+          unitOfMeasure: '1 GB',
+          armRegionName: 'eastus',
+          productName: 'Sentinel',
+        }],
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const start = Date.parse('2026-11-19T00:00:00Z')
+    vi.setSystemTime(start)
+    const east = 'eastus-revisit'
+    clearRegionCache(east)
+
+    const first = await fetchSentinelPricing(east)
+    expect(first.fromCache).toBe(false)
+    expect(first.defenderIsocLookup).toBe('live')
+    expect(first.defenderIsocRateIsFallback).toBe(false)
+    expect(first.bundle.defenderIsocRateUsd).toBe(2.4)
+    const calls = fetchMock.mock.calls.length
+
+    vi.setSystemTime(start + 60 * 60 * 1000)
+    const second = await fetchSentinelPricing(east)
+    expect(fetchMock.mock.calls.length).toBe(calls)
+    expect(second.fromCache).toBe(true)
+    expect(second.defenderIsocLookup).toBe('live')
+    expect(second.analyticsRetentionLookup).toBe('live')
+    expect(second.defenderIsocRateIsFallback).toBe(false)
+    expect(second.bundle.defenderIsocRateUsd).toBe(2.4)
+    expect(nextRegionalRateNote(second.defenderIsocLookup, undefined).note).toBeNull()
+    clearRegionCache(east)
   })
 
   it('treats a failed optional query the same way as a response with no meter', async () => {

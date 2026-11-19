@@ -242,7 +242,6 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     licenceBenefits.billableAnalyticsGbPerDay,
     pricing,
     fxRate,
-    new Date(),
     promoTierSignupOpen(),
   )
 

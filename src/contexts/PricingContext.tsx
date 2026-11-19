@@ -83,7 +83,9 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
           misses.delete(arm)
           return { note: null as string | null, retry: false }
         }
-        const decided = nextRegionalRateNote(lookup, misses.get(arm))
+        // A cached live rate is still live. A cached miss is not a new observation.
+        const observed = result.fromCache && lookup !== 'live' ? 'cached' : lookup
+        const decided = nextRegionalRateNote(observed, misses.get(arm))
         if (decided.miss) misses.set(arm, decided.miss)
         else misses.delete(arm)
         return decided

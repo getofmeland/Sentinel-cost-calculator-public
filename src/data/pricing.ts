@@ -70,17 +70,18 @@ export const DEFENDER_ISOC_RATE_USD_PER_GB = 2.88
  * - Defender for Identity: IdentityDirectoryEvents, IdentityLogonEvents,
  *   IdentityQueryEvents and IdentityEvents.
  * - Defender for Office 365: EmailEvents and the other email tables listed.
- * - Microsoft Entra: EntraIdSignInEvents, EntraIdSpnSignInEvents and
- *   GraphAPIAuditEvents.
- *
  * Defender for Cloud Apps is not in this set. The page lists CloudAppEvents,
  * but this calculator's mdca source also models Shadow IT discovery, which
- * the page does not list. There is no published split of that source, so the
- * whole of it stays on the paid meter. That keeps the ISOC total an upper
- * bound rather than understating the Shadow IT share.
+ * the page does not list. There is no published split, so the whole source
+ * stays on the paid meter and the ISOC total remains an upper bound.
+ *
+ * Entra ID is not in this set either. The page lists EntraIdSignInEvents,
+ * EntraIdSpnSignInEvents and GraphAPIAuditEvents. This source also models
+ * non-interactive user sign-ins, managed-identity sign-ins and directory
+ * AuditLogs, which that list does not name. There is no published split of
+ * the source, so the whole of it stays on the paid meter.
  */
 export const ISOC_INCLUDED_ANALYTICS_SOURCE_IDS: ReadonlySet<string> = new Set([
-  'entra-id',
   'mde',
   'mde-servers',
   'mdi',
