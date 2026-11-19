@@ -24,6 +24,10 @@ interface PricingContextValue {
   fxIsLive: boolean
   /** Publication date of the live rates, when the provider reported one */
   fxDate: string | null
+  /** Sentinel rates are live, but the ISOC figure is the UK South constant */
+  defenderIsocRateIsFallback: boolean
+  /** Sentinel rates are live, but extended Analytics retention is the UK South constant */
+  analyticsRetentionRateIsFallback: boolean
 }
 
 const PricingContext = createContext<PricingContextValue | null>(null)
@@ -42,6 +46,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
   // Once the user edits a rate by hand their value wins, and a later live
   // fetch must not silently overwrite it.
   const [fxOverridden, setFxOverridden] = useState(false)
+  const [defenderIsocRateIsFallback, setDefenderIsocRateIsFallback] = useState(false)
+  const [analyticsRetentionRateIsFallback, setAnalyticsRetentionRateIsFallback] = useState(false)
 
   const loadPricing = useCallback(async (arm: string) => {
     setIsLoading(true)
@@ -49,6 +55,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
       const result = await fetchSentinelPricing(arm)
       setPricing(result.bundle)
       setIsLive(result.isLive)
+      setDefenderIsocRateIsFallback(result.isLive && result.defenderIsocRateIsFallback)
+      setAnalyticsRetentionRateIsFallback(result.isLive && result.analyticsRetentionRateIsFallback)
       const d = new Date(result.fetchedAt)
       setLastFetched(
         d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
@@ -58,6 +66,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
       // surfacing — RegionSelector shows it as a warning badge.
     } catch {
       setIsLive(false)
+      setDefenderIsocRateIsFallback(false)
+      setAnalyticsRetentionRateIsFallback(false)
     } finally {
       setIsLoading(false)
     }
@@ -121,6 +131,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
     pricing,
     fxIsLive,
     fxDate,
+    defenderIsocRateIsFallback,
+    analyticsRetentionRateIsFallback,
   }
 
   return (

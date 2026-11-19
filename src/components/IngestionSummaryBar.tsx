@@ -1,6 +1,7 @@
 import { IngestionSummary } from '../utils/ingestion'
 import { fmtCurrency } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
+import { REGIONAL_RATE_FALLBACK_NOTE } from '../services/azurePricing'
 import { getTierDefinition } from '../data/logTiers'
 import { BILLING_RULES, type AnalyticsBillingMode } from '../data/pricing'
 import { formatUkDate } from '../utils/dates'
@@ -11,7 +12,7 @@ interface IngestionSummaryBarProps {
 }
 
 export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: IngestionSummaryBarProps) {
-  const { pricing, fxRate, displayCurrency, eurRate } = usePricing()
+  const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateIsFallback } = usePricing()
 
   function fmt(usd: number, decimals = 0) {
     return fmtCurrency(usd, displayCurrency, fxRate, eurRate, decimals)
@@ -82,6 +83,9 @@ export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: I
           <p className="text-[11px] text-light/60 mt-1 leading-snug">
             Opt-in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)} for Microsoft 365 E5, E7 and Defender Suite.
           </p>
+          {defenderIsocRateIsFallback && (
+            <p className="text-[11px] text-light/60 mt-1 leading-snug">{REGIONAL_RATE_FALLBACK_NOTE}</p>
+          )}
         </div>
 
         {/* Data Lake */}

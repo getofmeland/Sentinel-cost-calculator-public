@@ -1,14 +1,20 @@
 import { computeTierOptions, defenderIsocMonthlyUsd } from '../utils/tiers'
 import { BILLING_RULES, DAYS_PER_MONTH, type AnalyticsBillingMode } from '../data/pricing'
 import { usePricing } from '../contexts/PricingContext'
+import { REGIONAL_RATE_FALLBACK_NOTE } from '../services/azurePricing'
 import { TierTable } from './TierTable'
 import { BreakevenChart } from './BreakevenChart'
 import { formatUkDate } from '../utils/dates'
 import { fmtCurrency } from '../utils/currency'
 
 interface Props {
-  /** Only Analytics-tier GB — Basic and Auxiliary logs are not eligible for commitment tiers */
+  /** Analytics GB after licence grants. Commitment tiers are sized on this. */
   analyticsGbPerDay: number
+  /**
+   * Analytics GB before licence grants. Defender ISOC is priced on this:
+   * the grants are Sentinel credits and are not applied to the ISOC meter.
+   */
+  analyticsGrossGbPerDay: number
   /** Data Lake GB/day — excluded from commitment tier pricing */
   dataLakeGbPerDay?: number
   analyticsBilling: AnalyticsBillingMode
@@ -17,15 +23,16 @@ interface Props {
 
 export function TierComparison({
   analyticsGbPerDay,
+  analyticsGrossGbPerDay,
   dataLakeGbPerDay = 0,
   analyticsBilling,
   onAnalyticsBillingChange,
 }: Props) {
-  const { pricing, fxRate, displayCurrency, eurRate } = usePricing()
+  const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateIsFallback } = usePricing()
   const options = computeTierOptions(analyticsGbPerDay, pricing, fxRate)
-  const isocDaily = analyticsGbPerDay * pricing.defenderIsocRateUsd
-  const isocMonthly = defenderIsocMonthlyUsd(analyticsGbPerDay, pricing.defenderIsocRateUsd)
-  const paygMonthly = analyticsGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH
+  const isocDaily = analyticsGrossGbPerDay * pricing.defenderIsocRateUsd
+  const isocMonthly = defenderIsocMonthlyUsd(analyticsGrossGbPerDay, pricing.defenderIsocRateUsd)
+  const paygMonthly = analyticsGrossGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH
   const isocSavingPct = paygMonthly > 0 ? ((paygMonthly - isocMonthly) / paygMonthly) * 100 : 0
 
   function fmt(usd: number, decimals = 2) {
@@ -80,10 +87,13 @@ export function TierComparison({
               <span className="block text-sm font-medium text-light">Defender ISOC</span>
               <span className="block text-xs text-light/60 mt-1">
                 {fmt(pricing.defenderIsocRateUsd)}/GB, flat. No commitment tiers.
-                {analyticsGbPerDay > 0 && (
+                {analyticsGrossGbPerDay > 0 && (
                   <> {fmt(isocDaily, 0)}/day · {fmt(isocMonthly, 0)}/month
                     {isocSavingPct > 0 && <> · {isocSavingPct.toFixed(0)}% under Sentinel pay-as-you-go</>}
                   </>
+                )}
+                {defenderIsocRateIsFallback && (
+                  <span className="block mt-1">{REGIONAL_RATE_FALLBACK_NOTE}</span>
                 )}
               </span>
             </span>
@@ -94,7 +104,7 @@ export function TierComparison({
           with Microsoft 365 E5, Microsoft 365 E7, or Microsoft Defender Suite. The meter prices additional
           Microsoft and non-Microsoft data ingested through an ISOC workspace. Included Microsoft Defender
           data is a separate benefit. Licence grants stay on the classic Sentinel columns: they are Sentinel
-          billing credits, and this estimate prices the Analytics volume at the ISOC meter on its own.
+          billing credits, and this estimate prices Analytics volume before those grants at the ISOC meter on its own.
         </p>
       </fieldset>
 

@@ -104,7 +104,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const [licence, setLicence] = useState<M365Licence>(restored?.licence ?? 'none')
   const [defenderEnabled, setDefenderEnabled] = useState(restored?.defenderEnabled ?? false)
   /** Null means "assume every user is licensed", the previous behaviour. */
-  const [licensedSeats, setLicensedSeats] = useState<number | null>(null)
+  const [licensedSeats, setLicensedSeats] = useState<number | null>(restored?.licensedSeats ?? null)
 
   // ── Opt-in data lake compute (graph + notebooks) ───────────────────────
   const [computeConfig, setComputeConfig] = useState<ComputeConfig>(
@@ -148,12 +148,13 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     retentionStrategies,
     compute: computeConfig,
     analyticsBilling,
+    licensedSeats,
   }), [
     userCount, selectedIds, globalSize, activePresetId, mifidExtended,
     globalRetentionStrategy, licence, defenderEnabled, region, displayCurrency,
     serverCounts, serverLevels, deviceCounts, logTiers, retentionDays,
     selectedVariants, manualGbValues, sourceSizeOverrides, retentionStrategies,
-    computeConfig, analyticsBilling,
+    computeConfig, analyticsBilling, licensedSeats,
   ])
 
   // Autosave, debounced so dragging the user slider does not thrash storage.
@@ -468,6 +469,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
       withSavingsMonthlyUsd: withSavingsMonthly,
       optimisedMonthlyUsd: optimisedMonthly,
       recommendedTierLabel: recommendedOption?.label ?? 'Pay-as-you-go',
+      analyticsBilling,
+      defenderIsocRateUsd: pricing.defenderIsocRateUsd,
       userCount,
       region: regionDisplayName,
       compute: computeCosts,
@@ -762,6 +765,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           analyticsDailyCostUsd={summary.analyticsDailyCostUsd}
           dataLakeDailyCostUsd={summary.dataLakeDailyCostUsd}
           recommendedAnalyticsRateUsd={recommendedAnalyticsRateUsd}
+          analyticsBilling={analyticsBilling}
         />
       </div>
 
@@ -784,6 +788,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         <ComputeCostPanel config={computeConfig} onChange={setComputeConfig} />
         <TierComparison
           analyticsGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
+          analyticsGrossGbPerDay={summary.analyticsGbPerDay}
           dataLakeGbPerDay={summary.dataLakeGbPerDay}
           analyticsBilling={analyticsBilling}
           onAnalyticsBillingChange={setAnalyticsBilling}

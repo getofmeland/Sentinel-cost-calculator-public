@@ -1,6 +1,6 @@
 import { IngestionSummary } from './ingestion'
 import { CurrencyCode } from './currency'
-import { DAYS_PER_MONTH } from '../data/pricing'
+import { DAYS_PER_MONTH, type AnalyticsBillingMode } from '../data/pricing'
 import type { ComputeCostBreakdown } from './compute'
 
 /**
@@ -32,6 +32,10 @@ export interface CsvExportOptions {
   withSavingsMonthlyUsd: number
   optimisedMonthlyUsd: number
   recommendedTierLabel: string
+  /** Which Analytics bill the headline scenario uses. Defaults to classic Sentinel. */
+  analyticsBilling?: AnalyticsBillingMode
+  /** Flat ISOC rate, required to reprice Analytics rows when that mode is selected */
+  defenderIsocRateUsd?: number
   userCount: number
   region: string
   /** Opt-in data lake compute; omitted from the export when nothing is enabled */
@@ -45,6 +49,7 @@ export interface CsvExportOptions {
  */
 export function buildEstimateCsv(o: CsvExportOptions): string {
   const money = (usd: number) => (usd * o.fxRate).toFixed(2)
+  const isocSelected = o.analyticsBilling === 'defender-isoc' && o.defenderIsocRateUsd !== undefined
 
   const rows: Array<Array<string | number>> = [
     ['Microsoft Sentinel cost estimate'],
@@ -52,18 +57,22 @@ export function buildEstimateCsv(o: CsvExportOptions): string {
     ['Azure region', o.region],
     ['Currency', o.currency],
     ['USD conversion rate', o.fxRate],
+    ['Analytics billing', isocSelected ? 'Defender ISOC (flat)' : 'Sentinel pay-as-you-go and commitment tiers'],
     ['Note', 'Planning estimate based on public Azure list pricing. Not a quote.'],
     [],
     ['Source', 'Tier', 'GB/day', 'Billable', `Ingestion/month (${o.currency})`, 'Retention days', `Retention/month (${o.currency})`],
   ]
 
   for (const row of o.summary.rows) {
+    const ingestionUsd = isocSelected && row.logTier === 'analytics' && !row.source.isFree
+      ? row.gbPerDay * o.defenderIsocRateUsd! * DAYS_PER_MONTH
+      : row.dailyCostUsd * DAYS_PER_MONTH
     rows.push([
       row.source.label,
       row.logTier === 'data-lake' ? 'Data Lake' : 'Analytics',
       row.gbPerDay.toFixed(2),
       row.source.isFree ? 'No (free)' : 'Yes',
-      money(row.dailyCostUsd * DAYS_PER_MONTH),
+      money(ingestionUsd),
       row.retentionDays,
       money(row.retentionMonthlyCostUsd),
     ])
@@ -95,8 +104,13 @@ export function buildEstimateCsv(o: CsvExportOptions): string {
     ['Scenario', `Monthly (${o.currency})`],
     ['Pay-as-you-go baseline', money(o.paygMonthlyUsd)],
     ['With licence benefits', money(o.withSavingsMonthlyUsd)],
-    [`Commitment tier (${o.recommendedTierLabel})`, money(o.optimisedMonthlyUsd)],
+    isocSelected
+      ? ['Defender ISOC (flat, licence grants not applied)', money(o.optimisedMonthlyUsd)]
+      : [`Commitment tier (${o.recommendedTierLabel})`, money(o.optimisedMonthlyUsd)],
   )
+  if (isocSelected) {
+    rows.push(['Note', 'Analytics source rows use the Defender ISOC flat rate. Data Lake rows stay on the Data Lake rate. Licence grants are not applied to the ISOC total.'])
+  }
 
   return toCsv(rows)
 }

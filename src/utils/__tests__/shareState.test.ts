@@ -52,6 +52,7 @@ const fullState: ShareableState = {
     adiScheduledHoursPerMonth: 6,
   },
   analyticsBilling: 'classic',
+  licensedSeats: null,
 }
 
 describe('share state round-trip', () => {
@@ -74,6 +75,14 @@ describe('share state round-trip', () => {
   it('keeps a realistic link short enough to paste', () => {
     const encoded = encodeShareState(fullState)
     expect(encoded.length).toBeLessThan(400)
+  })
+
+  it('round-trips a stated licensed-seat count and ignores a non-numeric one', () => {
+    const encoded = encodeShareState({ ...DEFAULT_SHARE_STATE, licensedSeats: 400 })
+    expect(encoded).toContain('ls=400')
+    expect(decodeShareState(encoded)?.licensedSeats).toBe(400)
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}`)!.licensedSeats).toBeNull()
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&ls=nope`)!.licensedSeats).toBeNull()
   })
 
   it('round-trips Defender ISOC billing and ignores an unknown value', () => {

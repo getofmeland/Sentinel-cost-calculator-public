@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import { SourceEstimateRow } from '../utils/ingestion'
 import { LogTierKey } from '../data/logTiers'
 import { TIER_PLACEMENT_DEFAULTS, TierRecommendation } from '../data/tierPlacement'
-import { DAYS_PER_MONTH } from '../data/pricing'
+import { DAYS_PER_MONTH, type AnalyticsBillingMode } from '../data/pricing'
 import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
 import { fmtCurrency, fmtBoth } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
@@ -16,6 +16,7 @@ interface Props {
   analyticsDailyCostUsd: number
   dataLakeDailyCostUsd: number
   recommendedAnalyticsRateUsd: number
+  analyticsBilling?: AnalyticsBillingMode
 }
 
 const REC_PILL_STYLES: Record<TierRecommendation, string> = {
@@ -45,8 +46,11 @@ export function TierPlacementTab({
   analyticsDailyCostUsd,
   dataLakeDailyCostUsd,
   recommendedAnalyticsRateUsd,
+  analyticsBilling = 'classic',
 }: Props) {
   const { pricing, fxRate, eurRate, displayCurrency } = usePricing()
+  const isocSelected = analyticsBilling === 'defender-isoc'
+  const analyticsRateUsd = isocSelected ? pricing.defenderIsocRateUsd : pricing.paygRateUsd
   if (rows.length === 0) {
     return (
       <div className="bg-surface rounded-xl border border-white/10 shadow-sm px-6 py-10 text-center">
@@ -57,12 +61,13 @@ export function TierPlacementTab({
     )
   }
 
-  const allAnalyticsCostMonthly = (analyticsGbPerDay + dataLakeGbPerDay) * pricing.paygRateUsd * DAYS_PER_MONTH
-  const currentCostMonthly = (analyticsDailyCostUsd + dataLakeDailyCostUsd) * DAYS_PER_MONTH
+  const allAnalyticsCostMonthly = (analyticsGbPerDay + dataLakeGbPerDay) * analyticsRateUsd * DAYS_PER_MONTH
+  const analyticsMonthly = isocSelected
+    ? analyticsGbPerDay * pricing.defenderIsocRateUsd * DAYS_PER_MONTH
+    : analyticsDailyCostUsd * DAYS_PER_MONTH
+  const currentCostMonthly = analyticsMonthly + dataLakeDailyCostUsd * DAYS_PER_MONTH
   const saving = allAnalyticsCostMonthly - currentCostMonthly
   const savingPct = allAnalyticsCostMonthly > 0 ? (saving / allAnalyticsCostMonthly) * 100 : 0
-
-  const analyticsMonthly = analyticsDailyCostUsd * DAYS_PER_MONTH
   const dataLakeMonthly = dataLakeDailyCostUsd * DAYS_PER_MONTH
 
   // Group rows by source group
@@ -81,7 +86,10 @@ export function TierPlacementTab({
         <div className="bg-surface rounded-xl border border-white/10 shadow-sm px-5 py-4">
           <p className="text-xs font-semibold text-light/50 uppercase tracking-widest mb-1">Analytics</p>
           <p className="text-lg font-semibold text-light">{fmtGbDay(analyticsGbPerDay)} GB/day</p>
-          <p className="text-sm text-light/50">{fmtBoth(analyticsMonthly, 2, fxRate)}/month</p>
+          <p className="text-sm text-light/60">{fmtBoth(analyticsMonthly, 2, fxRate)}/month</p>
+          {isocSelected && (
+            <p className="text-[11px] text-light/60 mt-1">Defender ISOC flat rate</p>
+          )}
         </div>
         <div className="bg-surface rounded-xl border border-white/10 shadow-sm px-5 py-4">
           <p className="text-xs font-semibold text-light/50 uppercase tracking-widest mb-1">Data Lake</p>
@@ -144,6 +152,8 @@ export function TierPlacementTab({
                       dailyCostDisplay = 'Free'
                     } else if (currentTier === 'data-lake') {
                       dailyCostDisplay = fmtCurrency(row.gbPerDay * pricing.dataLakeRateUsd, displayCurrency, fxRate, eurRate, 2)
+                    } else if (isocSelected) {
+                      dailyCostDisplay = fmtCurrency(row.gbPerDay * pricing.defenderIsocRateUsd, displayCurrency, fxRate, eurRate, 2)
                     } else {
                       dailyCostDisplay = fmtCurrency(row.gbPerDay * recommendedAnalyticsRateUsd, displayCurrency, fxRate, eurRate, 2)
                     }

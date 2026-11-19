@@ -61,6 +61,8 @@ export interface ShareableState {
   compute: ComputeConfig
   /** Classic Sentinel billing unless the link explicitly selects Defender ISOC. */
   analyticsBilling: AnalyticsBillingMode
+  /** Null means every user is treated as licensed. A number is the stated seat count. */
+  licensedSeats: number | null
 }
 
 export const DEFAULT_SHARE_STATE: ShareableState = {
@@ -85,6 +87,7 @@ export const DEFAULT_SHARE_STATE: ShareableState = {
   retentionStrategies: {},
   compute: DEFAULT_COMPUTE_CONFIG,
   analyticsBilling: 'classic',
+  licensedSeats: null,
 }
 
 // ─── Known-value sets, used to reject anything a URL invents ──────────────────
@@ -138,6 +141,7 @@ export function encodeShareState(state: ShareableState): string {
   if (state.region !== d.region) p.set('r', state.region)
   if (state.displayCurrency !== d.displayCurrency) p.set('c', state.displayCurrency)
   if (state.analyticsBilling !== d.analyticsBilling) p.set('ab', state.analyticsBilling)
+  if (state.licensedSeats !== null) p.set('ls', String(state.licensedSeats))
 
   const maps: Array<[string, Record<string, string | number>]> = [
     ['sc', state.serverCounts],
@@ -247,6 +251,12 @@ export function decodeShareState(search: string): ShareableState | null {
   const billing = p.get('ab')
   if (billing && BILLING_MODES.has(billing as AnalyticsBillingMode)) {
     state.analyticsBilling = billing as AnalyticsBillingMode
+  }
+
+  const seats = p.get('ls')
+  if (seats !== null) {
+    const n = clampInt(seats, 0, 100000)
+    if (n !== null) state.licensedSeats = n
   }
 
   for (const [id, raw] of decodeMap(p.get('sc'))) {

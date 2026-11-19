@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
 
-import { csvField, toCsv } from '../csvExport'
+import { buildEstimateCsv, csvField, toCsv } from '../csvExport'
+import type { IngestionSummary } from '../ingestion'
+import { DAYS_PER_MONTH } from '../../data/pricing'
 
 describe('csvField', () => {
   it('leaves an ordinary value untouched', () => {
@@ -48,5 +50,52 @@ describe('toCsv', () => {
 
   it('renders an empty row as a blank line for visual spacing', () => {
     expect(toCsv([['a'], [], ['b']])).toBe('a\r\n\r\nb')
+  })
+})
+
+const summary = {
+  rows: [{
+    source: { id: 'entra-id', label: 'Entra ID', isFree: false },
+    gbPerDay: 10,
+    logTier: 'analytics',
+    dailyCostUsd: 53.8,
+    retentionDays: 90,
+    retentionMonthlyCostUsd: 0,
+  }],
+  totalGbPerDay: 10,
+  freeGbPerDay: 0,
+  analyticsGbPerDay: 10,
+  dataLakeGbPerDay: 0,
+} as unknown as IngestionSummary
+
+describe('buildEstimateCsv', () => {
+  const base = {
+    summary,
+    currency: 'USD' as const,
+    fxRate: 1,
+    paygMonthlyUsd: 100,
+    withSavingsMonthlyUsd: 80,
+    optimisedMonthlyUsd: 70,
+    recommendedTierLabel: '100 GB/day',
+    userCount: 500,
+    region: 'UK South',
+  }
+
+  it('labels a classic estimate with its commitment tier', () => {
+    const csv = buildEstimateCsv(base)
+    expect(csv).toContain('Commitment tier (100 GB/day)')
+    expect(csv).not.toContain('Defender ISOC')
+  })
+
+  it('prices Analytics rows at the ISOC rate and does not call that total a commitment tier', () => {
+    const csv = buildEstimateCsv({
+      ...base,
+      analyticsBilling: 'defender-isoc',
+      defenderIsocRateUsd: 2.88,
+      optimisedMonthlyUsd: 10 * 2.88 * DAYS_PER_MONTH,
+    })
+    expect(csv).toContain('Defender ISOC (flat, licence grants not applied)')
+    expect(csv).not.toContain('Commitment tier')
+    expect(csv).toContain((10 * 2.88 * DAYS_PER_MONTH).toFixed(2))
   })
 })

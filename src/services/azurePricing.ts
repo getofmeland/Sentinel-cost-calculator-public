@@ -37,6 +37,10 @@ export const AZURE_REGION_GROUPS: Array<{ group: string; regions: AzureRegion[] 
 
 export const DEFAULT_REGION = 'uksouth'
 
+/** Shown when a live regional meter was missing and the UK South constant is in use. */
+export const REGIONAL_RATE_FALLBACK_NOTE =
+  'UK South list price. The live rate for this region was unavailable and will be retried shortly.'
+
 export function getRegionLabel(arm: string): string {
   for (const { regions } of AZURE_REGION_GROUPS) {
     const found = regions.find(r => r.arm === arm)
@@ -53,6 +57,14 @@ interface CacheEntry {
   isLive: boolean
   /** Set when the entry records a failed fetch, so it expires sooner */
   isFailure?: boolean
+  /**
+   * Sentinel meters were live, but an optional rate fell back to the UK South
+   * figure. Kept only briefly so the missing query is retried, and surfaced in
+   * the UI so a fallback is not presented as this region's live price.
+   */
+  shortTtl?: boolean
+  defenderIsocRateIsFallback: boolean
+  analyticsRetentionRateIsFallback: boolean
 }
 
 const cache = new Map<string, CacheEntry>()
@@ -236,14 +248,24 @@ export interface FetchResult {
   bundle: PricingBundle
   isLive: boolean
   fetchedAt: number
+  /** True when defenderIsocRateUsd is the UK South constant, not this region's meter */
+  defenderIsocRateIsFallback: boolean
+  /** True when analytics extended retention is the UK South constant */
+  analyticsRetentionRateIsFallback: boolean
 }
 
 export async function fetchSentinelPricing(region: string): Promise<FetchResult> {
   const cached = cache.get(region)
-  if (cached) {
-    const ttl = cached.isFailure ? FAILURE_CACHE_TTL_MS : CACHE_TTL_MS
+    if (cached) {
+    const ttl = cached.isFailure || cached.shortTtl ? FAILURE_CACHE_TTL_MS : CACHE_TTL_MS
     if (Date.now() - cached.fetchedAt < ttl) {
-      return { bundle: cached.data, isLive: cached.isLive, fetchedAt: cached.fetchedAt }
+      return {
+        bundle: cached.data,
+        isLive: cached.isLive,
+        fetchedAt: cached.fetchedAt,
+        defenderIsocRateIsFallback: cached.defenderIsocRateIsFallback,
+        analyticsRetentionRateIsFallback: cached.analyticsRetentionRateIsFallback,
+      }
     }
   }
 
@@ -285,18 +307,34 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
     if (paygRate === null && commitmentTiers === STATIC_PRICING_BUNDLE.commitmentTiers) {
       // Region returned nothing usable — fall back to static
       console.warn(`[azurePricing] No pricing data for region '${region}', using static defaults`)
-      const entry: CacheEntry = { data: STATIC_PRICING_BUNDLE, fetchedAt: Date.now(), isLive: false }
+      const entry: CacheEntry = {
+        data: STATIC_PRICING_BUNDLE,
+        fetchedAt: Date.now(),
+        isLive: false,
+        defenderIsocRateIsFallback: true,
+        analyticsRetentionRateIsFallback: true,
+      }
       cache.set(region, entry)
-      return { bundle: STATIC_PRICING_BUNDLE, isLive: false, fetchedAt: entry.fetchedAt }
+      return {
+        bundle: STATIC_PRICING_BUNDLE,
+        isLive: false,
+        fetchedAt: entry.fetchedAt,
+        defenderIsocRateIsFallback: true,
+        analyticsRetentionRateIsFallback: true,
+      }
     }
+
+    const isocRate = parseDefenderIsoc(isocItems)
+    const retentionRate = parseAnalyticsRetention(retentionItems)
+    const defenderIsocRateIsFallback = isocRate === null
+    const analyticsRetentionRateIsFallback = retentionRate === null
 
     const bundle: PricingBundle = {
       paygRateUsd: paygRate ?? STATIC_PRICING_BUNDLE.paygRateUsd,
       commitmentTiers,
       dataLakeRateUsd: dl.ingestion ?? STATIC_PRICING_BUNDLE.dataLakeRateUsd,
       analyticsExtendedRetentionRateUsd:
-        parseAnalyticsRetention(retentionItems)
-        ?? STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd,
+        retentionRate ?? STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd,
       dataLakeRetentionRateUsd: dl.storage ?? STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
       dataLakeQueryRateUsd: dl.query ?? STATIC_PRICING_BUNDLE.dataLakeQueryRateUsd,
       // Compute meters. These have always been in the response — the single
@@ -311,20 +349,49 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
         priceOf(items, METERS.basicLogs) ?? STATIC_PRICING_BUNDLE.basicLogsRateUsd,
       auxiliaryLogsRateUsd:
         priceOf(items, METERS.auxiliaryLogs) ?? STATIC_PRICING_BUNDLE.auxiliaryLogsRateUsd,
-      defenderIsocRateUsd:
-        parseDefenderIsoc(isocItems) ?? STATIC_PRICING_BUNDLE.defenderIsocRateUsd,
+      defenderIsocRateUsd: isocRate ?? STATIC_PRICING_BUNDLE.defenderIsocRateUsd,
     }
 
-    const entry: CacheEntry = { data: bundle, fetchedAt: Date.now(), isLive: true }
+    // A missing optional meter must not be cached as this region's live price
+    // for a day. Sentinel rates stay live; the fallback rates are retried on
+    // the short failure TTL and labelled in the UI.
+    const partialFallback = defenderIsocRateIsFallback || analyticsRetentionRateIsFallback
+    const entry: CacheEntry = {
+      data: bundle,
+      fetchedAt: Date.now(),
+      isLive: true,
+      shortTtl: partialFallback,
+      defenderIsocRateIsFallback,
+      analyticsRetentionRateIsFallback,
+    }
     cache.set(region, entry)
-    return { bundle, isLive: true, fetchedAt: entry.fetchedAt }
+    return {
+      bundle,
+      isLive: true,
+      fetchedAt: entry.fetchedAt,
+      defenderIsocRateIsFallback,
+      analyticsRetentionRateIsFallback,
+    }
   } catch (err) {
     console.warn(`[azurePricing] Failed to fetch pricing for '${region}':`, err)
     // Cached with a short TTL (see FAILURE_CACHE_TTL_MS) so a transient error
     // retries soon, rather than locking the region to static rates all day.
-    const entry: CacheEntry = { data: STATIC_PRICING_BUNDLE, fetchedAt: Date.now(), isLive: false, isFailure: true }
+    const entry: CacheEntry = {
+      data: STATIC_PRICING_BUNDLE,
+      fetchedAt: Date.now(),
+      isLive: false,
+      isFailure: true,
+      defenderIsocRateIsFallback: true,
+      analyticsRetentionRateIsFallback: true,
+    }
     cache.set(region, entry)
-    return { bundle: STATIC_PRICING_BUNDLE, isLive: false, fetchedAt: entry.fetchedAt }
+    return {
+      bundle: STATIC_PRICING_BUNDLE,
+      isLive: false,
+      fetchedAt: entry.fetchedAt,
+      defenderIsocRateIsFallback: true,
+      analyticsRetentionRateIsFallback: true,
+    }
   } finally {
     clearTimeout(timeout)
   }
