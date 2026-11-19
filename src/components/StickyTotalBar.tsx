@@ -7,9 +7,17 @@ interface Props {
   withSavingsMonthly: number
   optimisedMonthly: number
   isEmpty: boolean
+  /** Label for the third figure. Classic estimates keep "Best case". */
+  scenarioLabel?: string
 }
 
-export function StickyTotalBar({ paygMonthly, withSavingsMonthly, optimisedMonthly, isEmpty }: Props) {
+export function StickyTotalBar({
+  paygMonthly,
+  withSavingsMonthly,
+  optimisedMonthly,
+  isEmpty,
+  scenarioLabel = 'Best case',
+}: Props) {
   const { displayCurrency, fxRate, eurRate } = usePricing()
   const savingsPct = paygMonthly > 0
     ? Math.round(((paygMonthly - optimisedMonthly) / paygMonthly) * 100)
@@ -71,7 +79,7 @@ export function StickyTotalBar({ paygMonthly, withSavingsMonthly, optimisedMonth
             {/* Optimised */}
             <div className="flex-1 flex flex-col items-center sm:items-end">
               <span className="text-[10px] font-semibold tracking-widest uppercase text-light/60">
-                Best case
+                {scenarioLabel}
               </span>
               <div className="flex items-baseline gap-2">
                 <span className={`text-xl font-bold font-mono ${optimisedMonthly < paygMonthly ? 'text-accent-text' : 'text-light/60'}`}>

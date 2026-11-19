@@ -13,6 +13,8 @@ import { FeatureRequestButton } from './components/FeatureRequestButton'
 import { FeatureRequestModal } from './components/FeatureRequestModal'
 import { CompliancePresetId } from './data/compliancePresets'
 import brand from './config/brand'
+import { BILLING_RULES } from './data/pricing'
+import { formatUkDate } from './utils/dates'
 
 type Mode = 'estimate' | 'analyse'
 
@@ -99,6 +101,11 @@ function AppShell() {
               <p className="text-xs text-light/60">UK mid-market &amp; enterprise · up to 50,000 users</p>
             </div>
           </div>
+
+          <p className="text-xs text-light/60 leading-relaxed max-w-3xl">
+            From {formatUkDate(BILLING_RULES.azurePortalRetirementDate)}, Microsoft Sentinel in the Azure portal
+            is retired. Sentinel stays available in the Microsoft Defender portal.
+          </p>
 
           {/* Region + FX + Currency controls */}
           <RegionSelector

@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
-import { LOG_SOURCES, DAYS_PER_MONTH, RetentionStrategy } from '../data/pricing'
+import { LOG_SOURCES, DAYS_PER_MONTH, RetentionStrategy, type AnalyticsBillingMode } from '../data/pricing'
 import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
-import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition } from '../data/logTiers'
+import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition, defaultSelectedRetentionDays } from '../data/logTiers'
 import { M365Licence, LICENCES } from '../data/licenceBenefits'
 import { summariseIngestion, estimateSourceGbPerDay, scaledDeviceCount } from '../utils/ingestion'
 import { computeLicenceBenefits } from '../utils/licenceBenefits'
-import { computeTierOptions } from '../utils/tiers'
+import { computeTierOptions, defenderIsocMonthlyUsd } from '../utils/tiers'
 import { getDefaultTier } from '../data/tierPlacement'
 import { CompliancePresetId, getPreset } from '../data/compliancePresets'
 import { TshirtSize, TSHIRT_SIZES, DEFAULT_TSHIRT_SIZE, getSizeMultiplier } from '../data/tshirtSizes'
@@ -110,6 +110,9 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const [computeConfig, setComputeConfig] = useState<ComputeConfig>(
     restored?.compute ?? DEFAULT_COMPUTE_CONFIG,
   )
+  const [analyticsBilling, setAnalyticsBilling] = useState<AnalyticsBillingMode>(
+    restored?.analyticsBilling ?? 'classic',
+  )
 
   // Region and currency live in PricingContext, so push the restored values up
   // once rather than duplicating that state here.
@@ -144,12 +147,13 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     sizeOverrides: sourceSizeOverrides,
     retentionStrategies,
     compute: computeConfig,
+    analyticsBilling,
   }), [
     userCount, selectedIds, globalSize, activePresetId, mifidExtended,
     globalRetentionStrategy, licence, defenderEnabled, region, displayCurrency,
     serverCounts, serverLevels, deviceCounts, logTiers, retentionDays,
     selectedVariants, manualGbValues, sourceSizeOverrides, retentionStrategies,
-    computeConfig,
+    computeConfig, analyticsBilling,
   ])
 
   // Autosave, debounced so dragging the user slider does not thrash storage.
@@ -250,13 +254,23 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const analyticsCommitmentMonthly = recommendedOption
     ? recommendedOption.monthlyCostUsd
     : licenceBenefits.billableAnalyticsGbPerDay * pricing.paygRateUsd * DAYS_PER_MONTH
-  const optimisedMonthly = Math.max(
+  const classicOptimisedMonthly = Math.max(
     0,
     analyticsCommitmentMonthly
       + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
       + summary.retentionMonthlyCostUsd
       + computeMonthly,
   )
+  // ISOC prices gross Analytics volume. Licence grants are Sentinel credits and
+  // are not applied on top of this meter.
+  const isocMonthly = Math.max(
+    0,
+    defenderIsocMonthlyUsd(summary.analyticsGbPerDay, pricing.defenderIsocRateUsd)
+      + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
+      + summary.retentionMonthlyCostUsd
+      + computeMonthly,
+  )
+  const optimisedMonthly = analyticsBilling === 'defender-isoc' ? isocMonthly : classicOptimisedMonthly
 
   // ── Handlers ───────────────────────────────────────────────────────────
   function handleSliderChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -348,8 +362,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
   function handleLogTierChange(id: string, tier: LogTierKey) {
     setLogTiers(prev => ({ ...prev, [id]: tier }))
-    const tierDef = getTierDefinition(tier)
-    setRetentionDays(prev => ({ ...prev, [id]: tierDef.freeRetentionDays }))
+    setRetentionDays(prev => ({ ...prev, [id]: defaultSelectedRetentionDays(tier) }))
   }
 
   function handleRetentionChange(id: string, days: number) {
@@ -678,8 +691,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
                   const deviceCount = deviceCounts[source.id] ?? scaledDeviceCount(source, userCount)
                   const variantId = selectedVariants[source.id] ?? source.defaultVariantId
                   const logTier = (logTiers[source.id] as LogTierKey | undefined) ?? DEFAULT_LOG_TIER
-                  const tierDef = getTierDefinition(logTier)
-                  const retention = retentionDays[source.id] ?? tierDef.freeRetentionDays
+                  const retention = retentionDays[source.id] ?? defaultSelectedRetentionDays(logTier)
                   const effectiveStrategy: RetentionStrategy =
                     (retentionStrategies[source.id] as RetentionStrategy | undefined) ?? globalRetentionStrategy
                   const sz = sourceSizeOverrides[source.id] ?? globalSize
@@ -716,7 +728,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
       {/* Summary bar */}
       <div className="px-6 pb-6">
-        <IngestionSummaryBar summary={summary} />
+        <IngestionSummaryBar summary={summary} analyticsBilling={analyticsBilling} />
       </div>
     </div>
   )
@@ -773,6 +785,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         <TierComparison
           analyticsGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
           dataLakeGbPerDay={summary.dataLakeGbPerDay}
+          analyticsBilling={analyticsBilling}
+          onAnalyticsBillingChange={setAnalyticsBilling}
         />
       </div>
 
@@ -787,6 +801,8 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           analyticsGrossGbPerDay={summary.analyticsGbPerDay}
           analyticsNetGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
           computeMonthlyUsd={computeMonthly}
+          analyticsBilling={analyticsBilling}
+          onAnalyticsBillingChange={setAnalyticsBilling}
         />
       </div>
 
@@ -795,6 +811,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         withSavingsMonthly={withSavingsMonthly}
         optimisedMonthly={optimisedMonthly}
         isEmpty={isEmpty}
+        scenarioLabel={analyticsBilling === 'defender-isoc' ? 'Defender ISOC' : 'Best case'}
       />
     </div>
   )

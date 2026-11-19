@@ -15,8 +15,8 @@
 
 import { describe, it, expect } from 'vitest'
 
-import { parsePayg, parseTiers, parseDataLake, type AzurePriceItem } from '../azurePricing'
-import { STATIC_PRICING_BUNDLE, PAYG_RATE_USD_PER_GB, DATA_LAKE_RATE_USD_PER_GB } from '../../data/pricing'
+import { parsePayg, parseTiers, parseDataLake, parseDefenderIsoc, parseAnalyticsRetention, type AzurePriceItem } from '../azurePricing'
+import { STATIC_PRICING_BUNDLE, PAYG_RATE_USD_PER_GB, DATA_LAKE_RATE_USD_PER_GB, DEFENDER_ISOC_RATE_USD_PER_GB } from '../../data/pricing'
 import fixture from './sentinel-uksouth.fixture.json'
 
 const items = fixture.Items as AzurePriceItem[]
@@ -90,5 +90,76 @@ describe('parseTiers', () => {
 
   it('falls back to the static ladder when the response contains no tiers', () => {
     expect(parseTiers([], 5.38)).toBe(STATIC_PRICING_BUNDLE.commitmentTiers)
+  })
+})
+
+/**
+ * Recorded 19 November 2026 from
+ *   productName eq 'Microsoft Defender ISOC' and armRegionName eq 'uksouth'
+ * The Sentinel pay-as-you-go meter is hyphenated ("Pay-as-you-go Analysis")
+ * and is a different product. These rows are the ISOC product in full.
+ */
+const ISOC_UK_SOUTH: AzurePriceItem[] = [
+  { meterName: 'Data lake storage Data Stored', retailPrice: 0.024, unitOfMeasure: '1 GB/Month', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Free Data Ingestion Analysis', retailPrice: 0, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Pay As You Go Analysis', retailPrice: 2.88, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Defender Extended Retention Analysis', retailPrice: 1.44, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Analytics Logs Data Retention', retailPrice: 0.12, unitOfMeasure: '1 GB/Month', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Data processing Data Processed', retailPrice: 0.12, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+]
+
+describe('parseDefenderIsoc', () => {
+  it('reads the UK South pay-as-you-go meter and agrees with the static fallback', () => {
+    expect(parseDefenderIsoc(ISOC_UK_SOUTH)).toBe(2.88)
+    expect(parseDefenderIsoc(ISOC_UK_SOUTH)).toBe(DEFENDER_ISOC_RATE_USD_PER_GB)
+  })
+
+  it('reads the East US meter, which is the figure the announcement quotes', () => {
+    const eastUs: AzurePriceItem[] = [{
+      meterName: 'Pay As You Go Analysis',
+      retailPrice: 2.4,
+      unitOfMeasure: '1 GB',
+      armRegionName: 'eastus',
+      productName: 'Microsoft Defender ISOC',
+    }]
+    expect(parseDefenderIsoc(eastUs)).toBe(2.4)
+  })
+
+  it('does not treat the Sentinel pay-as-you-go meter as Defender ISOC', () => {
+    expect(parseDefenderIsoc(items)).toBeNull()
+  })
+
+  it('returns null when the meter is absent', () => {
+    expect(parseDefenderIsoc([])).toBeNull()
+  })
+
+  it('records that the ISOC product publishes no commitment-tier meters', () => {
+    expect(ISOC_UK_SOUTH.some(i => /commitment tier/i.test(i.meterName))).toBe(false)
+  })
+})
+
+describe('parseAnalyticsRetention', () => {
+  // Recorded 19 November 2026. serviceName 'Log Analytics', meter
+  // 'Analytics Logs Data Retention'. UK South matches the static fallback;
+  // East US and Australia East do not, which is why the rate is fetched live.
+  const logAnalytics: AzurePriceItem[] = [
+    { meterName: 'Analytics Logs Data Retention', retailPrice: 0.13, unitOfMeasure: '1 GB/Month', armRegionName: 'uksouth', productName: 'Log Analytics' },
+    { meterName: 'Analytics Logs Data Retention', retailPrice: 0.1, unitOfMeasure: '1 GB/Month', armRegionName: 'eastus', productName: 'Log Analytics' },
+    { meterName: 'Analytics Logs Data Retention', retailPrice: 0.15, unitOfMeasure: '1 GB/Month', armRegionName: 'australiaeast', productName: 'Log Analytics' },
+  ]
+
+  it('keeps the UK South rate that the static fallback already uses', () => {
+    expect(parseAnalyticsRetention([logAnalytics[0]])).toBe(0.13)
+    expect(parseAnalyticsRetention([logAnalytics[0]])).toBe(STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd)
+  })
+
+  it('returns the regional rate rather than the UK South constant', () => {
+    expect(parseAnalyticsRetention([logAnalytics[1]])).toBe(0.1)
+    expect(parseAnalyticsRetention([logAnalytics[2]])).toBe(0.15)
+  })
+
+  it('ignores the Defender ISOC meter of the same name', () => {
+    const mixed = [ISOC_UK_SOUTH.find(i => i.meterName === 'Analytics Logs Data Retention')!, logAnalytics[0]]
+    expect(parseAnalyticsRetention(mixed)).toBe(0.13)
   })
 })

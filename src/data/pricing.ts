@@ -1,4 +1,5 @@
 // Microsoft Sentinel pricing data — UK South, verified 6 August 2026.
+// Pay-as-you-go was re-checked on 19 November 2026 and is still $5.38/GB.
 //
 // Every rate here was taken from the Azure Retail Prices API, not from a
 // pricing page or from memory:
@@ -30,6 +31,31 @@ export const EXCHANGE_RATE_USD_TO_EUR = 0.8657
  */
 export const PAYG_RATE_USD_PER_GB = 5.38
 
+/**
+ * Defender ISOC pay-as-you-go rate for additional analytics ingestion, USD per GB.
+ *
+ * Product "Microsoft Defender ISOC" (the retail serviceName is "Microsoft
+ * Defender", not "Sentinel"). Meter: "Pay As You Go Analysis". UK South
+ * fallback, read from the Retail Prices API on 19 November 2026:
+ *
+ *   https://prices.azure.com/api/retail/prices
+ *     ?$filter=productName eq 'Microsoft Defender ISOC'
+ *      and armRegionName eq 'uksouth'
+ *      and meterName eq 'Pay As You Go Analysis'
+ *
+ * That meter is 2.88 in UK South and 2.40 in East US. The East US figure is
+ * the one the Ignite 2026 announcement quotes. The product publishes no
+ * commitment-tier meters, so the rate does not fall with volume.
+ *
+ * Opt-in from 17 November 2026 for Microsoft 365 E5, Microsoft 365 E7 and
+ * Microsoft Defender Suite. Classic Sentinel pay-as-you-go is a different meter
+ * and stays at PAYG_RATE_USD_PER_GB.
+ */
+export const DEFENDER_ISOC_RATE_USD_PER_GB = 2.88
+
+/** How the Analytics-plan gigabytes in an estimate are billed. */
+export type AnalyticsBillingMode = 'classic' | 'defender-isoc'
+
 // ─── Commitment Tiers ────────────────────────────────────────────────────────
 
 export interface CommitmentTier {
@@ -41,7 +67,11 @@ export interface CommitmentTier {
   effectiveRateUsd: number
   /** Saving percentage vs PAYG (0–1) */
   savingsVsPayg: number
-  /** True while the 50 GB preview promotion is active (until March 2027) */
+  /**
+   * True for the 50 GB preview promotion. New sign-ups close on
+   * BILLING_RULES.promoTierSignupDeadline; the price then holds until
+   * BILLING_RULES.promoTierExpiryDate.
+   */
   isPreviewPromo?: boolean
 }
 
@@ -619,7 +649,28 @@ export const BILLING_RULES = {
   overageAtTierRate: true,
   downgradeWaitDays: 31,
   defaultRetentionDays: 90,
+  /**
+   * Last day to sign up for the 50 GB commitment-tier preview price.
+   * https://www.microsoft.com/en-us/security/pricing/microsoft-sentinel
+   */
+  promoTierSignupDeadline: '2026-12-31',
+  /**
+   * Customers who sign up by promoTierSignupDeadline keep that price until
+   * this date. It is a lock-in end, not the sign-up deadline.
+   */
   promoTierExpiryDate: '2027-03-31',
+  /**
+   * After this date Sentinel is unsupported in the Azure portal and is
+   * available only in the Microsoft Defender portal.
+   * https://learn.microsoft.com/en-us/azure/sentinel/microsoft-sentinel-defender-portal
+   */
+  azurePortalRetirementDate: '2027-03-31',
+  /**
+   * First day existing Sentinel customers with Microsoft 365 E5, E7 or
+   * Defender Suite can opt into Defender ISOC.
+   * https://techcommunity.microsoft.com/blog/microsoftsentinelblog/ignite-2026-whats-new-in-microsoft-sentinel/4571174
+   */
+  defenderIsocOptInDate: '2026-11-17',
   minimumTierWithoutPromoGbPerDay: 100,
 }
 
@@ -644,6 +695,11 @@ export interface PricingBundle {
   basicLogsRateUsd: number
   /** Flat per-GB; NOT covered by commitment tiers */
   auxiliaryLogsRateUsd: number
+  /**
+   * Defender ISOC analytics ingestion, USD per GB. Flat — no commitment tiers.
+   * Classic paygRateUsd is unchanged.
+   */
+  defenderIsocRateUsd: number
 }
 
 export const STATIC_PRICING_BUNDLE: PricingBundle = {
@@ -657,4 +713,5 @@ export const STATIC_PRICING_BUNDLE: PricingBundle = {
   advancedDataInsightsRateUsdPerVCoreHour: ADVANCED_DATA_INSIGHTS_RATE_USD_PER_VCORE_HOUR,
   basicLogsRateUsd: BASIC_LOGS_RATE_USD_PER_GB,
   auxiliaryLogsRateUsd: AUXILIARY_LOGS_RATE_USD_PER_GB,
+  defenderIsocRateUsd: DEFENDER_ISOC_RATE_USD_PER_GB,
 }

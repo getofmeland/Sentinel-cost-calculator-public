@@ -1,12 +1,16 @@
 import { IngestionSummary } from '../utils/ingestion'
 import { fmtCurrency } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
+import { getTierDefinition } from '../data/logTiers'
+import { BILLING_RULES, type AnalyticsBillingMode } from '../data/pricing'
+import { formatUkDate } from '../utils/dates'
 
 interface IngestionSummaryBarProps {
   summary: IngestionSummary
+  analyticsBilling?: AnalyticsBillingMode
 }
 
-export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
+export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: IngestionSummaryBarProps) {
   const { pricing, fxRate, displayCurrency, eurRate } = usePricing()
 
   function fmt(usd: number, decimals = 0) {
@@ -14,6 +18,11 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
   }
 
   const dataLakeRateConverted = fmtCurrency(pricing.dataLakeRateUsd, displayCurrency, fxRate, eurRate, 2)
+  const isocRateConverted = fmtCurrency(pricing.defenderIsocRateUsd, displayCurrency, fxRate, eurRate, 2)
+  const lakeFreeDays = getTierDefinition('data-lake').freeRetentionDays
+  const lakeRetentionLabel = lakeFreeDays > 0
+    ? `${lakeFreeDays}-day free retention`
+    : 'no included free retention'
 
   if (summary.rows.length === 0) {
     return (
@@ -61,9 +70,17 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
           <p className="text-[10px] font-semibold text-warning/70 uppercase tracking-widest">Analytics</p>
           <p className="text-3xl font-bold font-mono mt-1 leading-none text-warning">{summary.analyticsGbPerDay.toFixed(2)}</p>
           <p className="text-xs text-light/50 mt-1">GB/day</p>
-          <p className="text-xs text-light/50 mt-1.5">
+          <p className="text-xs text-light/60 mt-1.5">
             {fmt(summary.analyticsDailyCostUsd)}/day
-            <span className="text-light/60"> · commitment tiers apply</span>
+            <span> · commitment tiers apply</span>
+          </p>
+          <p className={`text-xs mt-1 ${analyticsBilling === 'defender-isoc' ? 'text-primary-text' : 'text-light/60'}`}>
+            Defender ISOC {isocRateConverted}/GB flat
+            <span> · no commitment tiers</span>
+            {analyticsBilling === 'defender-isoc' && <span> · selected</span>}
+          </p>
+          <p className="text-[11px] text-light/60 mt-1 leading-snug">
+            Opt-in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)} for Microsoft 365 E5, E7 and Defender Suite.
           </p>
         </div>
 
@@ -73,7 +90,7 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
           <p className="text-3xl font-bold font-mono mt-1 leading-none text-primary-text">{summary.dataLakeGbPerDay.toFixed(2)}</p>
           <p className="text-xs text-light/50 mt-1">GB/day</p>
           <p className="text-xs text-light/50 mt-1.5">
-            {fmt(summary.dataLakeDailyCostUsd)}/day · {dataLakeRateConverted}/GB · 30-day free retention
+            {fmt(summary.dataLakeDailyCostUsd)}/day · {dataLakeRateConverted}/GB · {lakeRetentionLabel}
           </p>
         </div>
       </div>

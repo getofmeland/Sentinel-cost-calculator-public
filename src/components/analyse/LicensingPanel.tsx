@@ -1,4 +1,6 @@
-import { LICENCES, type M365Licence } from '../../data/licenceBenefits'
+import { LICENCES, E5_QUALIFYING_LICENCES, type M365Licence } from '../../data/licenceBenefits'
+import { BILLING_RULES } from '../../data/pricing'
+import { formatUkDate } from '../../utils/dates'
 import { STATIC_PRICING_BUNDLE } from '../../data/pricing'
 import type { LicensingInput } from '../../utils/analysis'
 
@@ -23,7 +25,7 @@ export function LicensingPanel({ value, onChange }: Props) {
   const set = <K extends keyof LicensingInput>(key: K, v: LicensingInput[K]) =>
     onChange({ ...value, [key]: v })
 
-  const qualifies = value.licence === 'e5' || value.licence === 'e5-security'
+  const qualifies = E5_QUALIFYING_LICENCES.has(value.licence)
 
   return (
     <div className="bg-surface rounded-xl border border-white/10 px-6 py-4 space-y-4">
@@ -89,8 +91,8 @@ export function LicensingPanel({ value, onChange }: Props) {
           />
           <span className="block text-[11px] text-light/60 mt-1">
             {qualifies
-              ? 'Seats of the qualifying SKU only. Guests, service accounts and F-series users earn nothing, and counting them over-credits the grant.'
-              : 'The 5 MB/user/day grant needs E5 or E5 Security.'}
+              ? 'Seats of the qualifying SKU only. Guests and service accounts earn nothing, and counting them over-credits the grant.'
+              : 'The 5 MB/user/day grant needs Microsoft 365 E5, E7, A5, F5, G5 or E5 Security.'}
           </span>
         </label>
 
@@ -120,6 +122,11 @@ export function LicensingPanel({ value, onChange }: Props) {
           </span>
         </label>
       </div>
+      <p className="text-[11px] text-light/60 leading-relaxed">
+        From {formatUkDate(BILLING_RULES.defenderIsocOptInDate)}, Microsoft 365 E5, E7 and Defender Suite
+        customers can opt into Defender ISOC. Additional ingestion is then a flat per-GB rate with no
+        commitment tiers. This report still prices classic Sentinel.
+      </p>
     </div>
   )
 }

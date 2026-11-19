@@ -292,6 +292,11 @@ export function SourceRow({
                   </span>
                 )}
               </div>
+              {logTier === 'data-lake' && freeWindowDays === 0 && (
+                <p className="text-[11px] text-light/60 leading-snug">
+                  Billed for the whole period. Data-lake-only tables have no included free retention.
+                </p>
+              )}
             </div>
           )}
           </div>

@@ -38,6 +38,15 @@ export function breakevenForTier(tier: CommitmentTier, paygRate: number = PAYG_R
   return tier.dailyCostUsd / paygRate
 }
 
+/**
+ * Monthly cost of Analytics volume on the flat Defender ISOC meter.
+ * Commitment tiers do not apply, and the figure is the gross volume: the
+ * Sentinel licence grants are credits on Sentinel meters, not on this one.
+ */
+export function defenderIsocMonthlyUsd(analyticsGbPerDay: number, rateUsdPerGb: number): number {
+  return analyticsGbPerDay * rateUsdPerGb * DAYS_PER_MONTH
+}
+
 export function computeTierOptions(
   billableGbPerDay: number,
   pricing: PricingBundle = STATIC_PRICING_BUNDLE,

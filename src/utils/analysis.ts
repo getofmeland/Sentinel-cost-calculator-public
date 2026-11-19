@@ -591,8 +591,10 @@ export function analyseUsage(
       // discloses that; Analyse mode did not, so a saving that expires could
       // land in a client deliverable with no note against it.
       const promoNote = recommended.tier?.isPreviewPromo
-        ? ` This is a preview promotional tier and Microsoft's published pricing for it runs to `
-          + `${BILLING_RULES.promoTierExpiryDate}. Do not quote it beyond that date without checking.`
+        ? ` This is a preview promotional tier. New sign-ups close on `
+          + `${BILLING_RULES.promoTierSignupDeadline}. Customers who sign up by then keep the `
+          + `promotional price until ${BILLING_RULES.promoTierExpiryDate}. Do not quote it beyond `
+          + `the lock-in date without checking.`
         : ''
       opportunities.push({
         kind: 'commitment-tier',

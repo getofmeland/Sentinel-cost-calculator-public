@@ -1,7 +1,7 @@
 // Microsoft Licence Benefit definitions for Sentinel billing credits
 // These benefits reduce billable Analytics GB/day — they do NOT reduce ingestion volume.
 
-export type M365Licence = 'none' | 'e3' | 'e5' | 'e5-security'
+export type M365Licence = 'none' | 'e3' | 'e5' | 'e5-security' | 'e7' | 'a5' | 'f5' | 'g5'
 
 export interface LicenceDefinition {
   id: M365Licence
@@ -52,13 +52,42 @@ export const LICENCES: LicenceDefinition[] = [
       'Entra ID P2',
     ],
   },
+  {
+    id: 'e7',
+    label: 'Microsoft 365 E7',
+    shortLabel: 'E7',
+    description: 'Same 5 MB Sentinel data grant as E5',
+    includes: ['5 MB/user/day Microsoft 365 data grant'],
+  },
+  {
+    id: 'a5',
+    label: 'Microsoft 365 A5',
+    shortLabel: 'A5',
+    description: 'Same 5 MB Sentinel data grant as E5',
+    includes: ['5 MB/user/day Microsoft 365 data grant'],
+  },
+  {
+    id: 'f5',
+    label: 'Microsoft 365 F5',
+    shortLabel: 'F5',
+    description: 'Same 5 MB Sentinel data grant as E5',
+    includes: ['5 MB/user/day Microsoft 365 data grant'],
+  },
+  {
+    id: 'g5',
+    label: 'Microsoft 365 G5',
+    shortLabel: 'G5',
+    description: 'Same 5 MB Sentinel data grant as E5',
+    includes: ['5 MB/user/day Microsoft 365 data grant'],
+  },
 ]
 
 // ─── E5 Data Grant ────────────────────────────────────────────────────────────
 
 /**
- * Each qualifying M365 E5 / E5 Security user includes 5 MB/day of free
- * Sentinel Analytics ingestion, but ONLY for Entra ID and MDCA sources.
+ * Each qualifying Microsoft 365 E7, E5, A5, F5, G5 or E5 Security user
+ * includes 5 MB/day of free Sentinel Analytics ingestion for the eligible
+ * sources listed below.
  */
 export const E5_DATA_GRANT_GB_PER_USER_PER_DAY = 0.005
 
@@ -92,8 +121,42 @@ export const E5_GRANT_ELIGIBLE_SOURCE_IDS: ReadonlySet<string> = new Set([
   'mdo',
 ])
 
-/** Licences that activate the E5 data grant */
-export const E5_QUALIFYING_LICENCES: ReadonlySet<M365Licence> = new Set(['e5', 'e5-security'])
+/**
+ * Licences that activate the 5 MB/user/day Sentinel data grant.
+ * Microsoft 365 E7, E5, A5, F5 and G5, plus the E5 Security add-on.
+ * The published offer also includes the A5, F5 and G5 Security add-ons;
+ * those are the same grant, so a customer on the add-on alone selects the
+ * matching suite here.
+ * https://azure.microsoft.com/en-us/pricing/offers/sentinel-microsoft-365-offer/
+ */
+export const E5_QUALIFYING_LICENCES: ReadonlySet<M365Licence> = new Set([
+  'e5',
+  'e5-security',
+  'e7',
+  'a5',
+  'f5',
+  'g5',
+])
+
+// ─── Security Copilot inclusion ───────────────────────────────────────────────
+
+/**
+ * Security compute units included with Microsoft 365 E5 and E7.
+ * 400 SCUs a month for every 1,000 paid user licences, capped at 10,000.
+ * https://learn.microsoft.com/en-us/copilot/security/security-copilot-inclusion
+ */
+export const SECURITY_COPILOT_SCUS_PER_THOUSAND_LICENCES = 400
+export const SECURITY_COPILOT_MONTHLY_CAP_SCUS = 10_000
+
+/** The inclusion article names E5 and E7. Other grant SKUs are not listed. */
+export const SECURITY_COPILOT_LICENCES: ReadonlySet<M365Licence> = new Set(['e5', 'e7'])
+
+/** Included SCUs for a paid-licence count. Zero when the count is not usable. */
+export function includedSecurityCopilotScus(paidUserLicences: number): number {
+  if (!Number.isFinite(paidUserLicences) || paidUserLicences <= 0) return 0
+  const raw = (paidUserLicences * SECURITY_COPILOT_SCUS_PER_THOUSAND_LICENCES) / 1000
+  return Math.min(SECURITY_COPILOT_MONTHLY_CAP_SCUS, raw)
+}
 
 // ─── Defender for Servers P2 ──────────────────────────────────────────────────
 

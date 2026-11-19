@@ -111,6 +111,16 @@ async function fetchAll(filter: string, signal: AbortSignal): Promise<AzurePrice
   return items
 }
 
+/** A secondary price list is optional. Its failure must not drop the Sentinel rates. */
+async function fetchOptional(filter: string, signal: AbortSignal): Promise<AzurePriceItem[]> {
+  try {
+    return await fetchAll(filter, signal)
+  } catch (err) {
+    console.warn('[azurePricing] Optional price query failed:', err)
+    return []
+  }
+}
+
 // ─── Parse helpers ────────────────────────────────────────────────────────────
 
 /**
@@ -130,6 +140,10 @@ const METERS = {
   advancedDataInsights: 'Advanced Data Insights',
   basicLogs: 'Basic Logs Analysis',
   auxiliaryLogs: 'Classic Auxiliary Logs Analysis',
+  // Spelled differently from the Sentinel meter "Pay-as-you-go Analysis".
+  // The hyphenation is the only thing that stops one parser reading the other.
+  isocPayg: 'Pay As You Go Analysis',
+  analyticsRetention: 'Analytics Logs Data Retention',
 } as const
 
 function priceOf(items: AzurePriceItem[], meterName: string): number | null {
@@ -176,6 +190,31 @@ export interface DataLakeRates {
   storage: number | null
 }
 
+/**
+ * Defender ISOC analytics ingestion. The meter name is exact: the Sentinel
+ * pay-as-you-go meter is hyphenated and must not match.
+ * Exported for testing against a recorded API response.
+ */
+export function parseDefenderIsoc(items: AzurePriceItem[]): number | null {
+  const matches = items.filter(i => i.meterName === METERS.isocPayg)
+  if (matches.length === 0) return null
+  const explicit = matches.find(i => i.productName === 'Microsoft Defender ISOC')
+  return (explicit ?? matches[0]).retailPrice
+}
+
+/**
+ * Interactive Analytics retention, billed by Log Analytics rather than Sentinel.
+ * The Defender ISOC product publishes a meter with the same name at a different
+ * price; that one is not this charge.
+ * Exported for testing against a recorded API response.
+ */
+export function parseAnalyticsRetention(items: AzurePriceItem[]): number | null {
+  const item = items.find(
+    i => i.meterName === METERS.analyticsRetention && i.productName !== 'Microsoft Defender ISOC',
+  )
+  return item ? item.retailPrice : null
+}
+
 /** Exported for testing against a recorded API response. */
 export function parseDataLake(items: AzurePriceItem[]): DataLakeRates {
   // Microsoft bills lake ingestion as two meters that both apply. Reading only
@@ -218,10 +257,26 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
     // API's contains() is case-sensitive. Fetching the lot and matching meter
     // names locally removes that whole class of failure, and picks up the
     // "Data processing" meter, which no "Data lake" filter would ever return.
-    const items = await fetchAll(
-      `serviceName eq 'Sentinel' and priceType eq 'Consumption' and armRegionName eq '${region}'`,
-      controller.signal,
-    )
+    //
+    // Two further lists sit outside serviceName 'Sentinel':
+    //   - Defender ISOC ingestion is productName 'Microsoft Defender ISOC'
+    //     (serviceName 'Microsoft Defender')
+    //   - Analytics interactive retention is serviceName 'Log Analytics'
+    // Either failing leaves that one rate on the static UK South fallback.
+    const [items, isocItems, retentionItems] = await Promise.all([
+      fetchAll(
+        `serviceName eq 'Sentinel' and priceType eq 'Consumption' and armRegionName eq '${region}'`,
+        controller.signal,
+      ),
+      fetchOptional(
+        `productName eq 'Microsoft Defender ISOC' and priceType eq 'Consumption' and armRegionName eq '${region}'`,
+        controller.signal,
+      ),
+      fetchOptional(
+        `serviceName eq 'Log Analytics' and priceType eq 'Consumption' and meterName eq 'Analytics Logs Data Retention' and armRegionName eq '${region}'`,
+        controller.signal,
+      ),
+    ])
 
     const paygRate = parsePayg(items)
     const commitmentTiers = parseTiers(items, paygRate ?? STATIC_PRICING_BUNDLE.paygRateUsd)
@@ -235,13 +290,13 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
       return { bundle: STATIC_PRICING_BUNDLE, isLive: false, fetchedAt: entry.fetchedAt }
     }
 
-    // Analytics extended retention is billed under a different serviceName
-    // ("Log Analytics"), so it is not in this response and stays static.
     const bundle: PricingBundle = {
       paygRateUsd: paygRate ?? STATIC_PRICING_BUNDLE.paygRateUsd,
       commitmentTiers,
       dataLakeRateUsd: dl.ingestion ?? STATIC_PRICING_BUNDLE.dataLakeRateUsd,
-      analyticsExtendedRetentionRateUsd: STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd,
+      analyticsExtendedRetentionRateUsd:
+        parseAnalyticsRetention(retentionItems)
+        ?? STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd,
       dataLakeRetentionRateUsd: dl.storage ?? STATIC_PRICING_BUNDLE.dataLakeRetentionRateUsd,
       dataLakeQueryRateUsd: dl.query ?? STATIC_PRICING_BUNDLE.dataLakeQueryRateUsd,
       // Compute meters. These have always been in the response — the single
@@ -256,6 +311,8 @@ export async function fetchSentinelPricing(region: string): Promise<FetchResult>
         priceOf(items, METERS.basicLogs) ?? STATIC_PRICING_BUNDLE.basicLogsRateUsd,
       auxiliaryLogsRateUsd:
         priceOf(items, METERS.auxiliaryLogs) ?? STATIC_PRICING_BUNDLE.auxiliaryLogsRateUsd,
+      defenderIsocRateUsd:
+        parseDefenderIsoc(isocItems) ?? STATIC_PRICING_BUNDLE.defenderIsocRateUsd,
     }
 
     const entry: CacheEntry = { data: bundle, fetchedAt: Date.now(), isLive: true }

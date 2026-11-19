@@ -51,6 +51,7 @@ const fullState: ShareableState = {
     adiInteractiveSessionsPerMonth: 20,
     adiScheduledHoursPerMonth: 6,
   },
+  analyticsBilling: 'classic',
 }
 
 describe('share state round-trip', () => {
@@ -73,6 +74,13 @@ describe('share state round-trip', () => {
   it('keeps a realistic link short enough to paste', () => {
     const encoded = encodeShareState(fullState)
     expect(encoded.length).toBeLessThan(400)
+  })
+
+  it('round-trips Defender ISOC billing and ignores an unknown value', () => {
+    const encoded = encodeShareState({ ...DEFAULT_SHARE_STATE, analyticsBilling: 'defender-isoc' })
+    expect(encoded).toContain('ab=defender-isoc')
+    expect(decodeShareState(encoded)?.analyticsBilling).toBe('defender-isoc')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&ab=free-money`)!.analyticsBilling).toBe('classic')
   })
 })
 
