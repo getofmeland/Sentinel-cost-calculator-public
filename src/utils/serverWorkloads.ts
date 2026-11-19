@@ -1,6 +1,6 @@
 import { ServerWorkload } from '../data/serverWorkloads'
 import { TshirtSize, getSizeMultiplier, interpolateRange } from '../data/tshirtSizes'
-import { LogTierKey, getTierDefinition } from '../data/logTiers'
+import { LogTierKey, defaultSelectedRetentionDays } from '../data/logTiers'
 import { PricingBundle, LogSourceGroup, RetentionStrategy } from '../data/pricing'
 import { getDefaultTier } from '../data/tierPlacement'
 import { SourceEstimateRow, retentionCostUsd } from './ingestion'
@@ -45,7 +45,6 @@ export function computeServerWorkloadRows(
     const logTier: LogTierKey =
       (logTiers[workload.id] as LogTierKey | undefined) ??
       (recommended === 'data-lake' ? 'data-lake' : 'analytics')
-    const tierDef = getTierDefinition(logTier)
 
     // Daily cost
     const logTierRate = logTier === 'data-lake' ? pricing.dataLakeRateUsd : pricing.paygRateUsd
@@ -53,7 +52,7 @@ export function computeServerWorkloadRows(
 
     // Retention — shares summariseIngestion's implementation so the two cannot
     // drift apart, and so the free window comes from the tier definition.
-    const selectedRetention = retentionDays[workload.id] ?? tierDef.freeRetentionDays
+    const selectedRetention = retentionDays[workload.id] ?? defaultSelectedRetentionDays(logTier)
     const strategy: RetentionStrategy =
       logTier === 'data-lake'
         ? 'data-lake-mirror'

@@ -6,7 +6,12 @@ import {
   ALWAYS_FREE_SOURCES,
   E5_DATA_GRANT_GB_PER_USER_PER_DAY,
   E5_GRANT_ELIGIBLE_SOURCE_IDS,
+  E5_QUALIFYING_LICENCES,
   DEFENDER_SERVERS_FREE_GB_PER_SERVER_PER_DAY,
+  SECURITY_COPILOT_LICENCES,
+  SECURITY_COPILOT_SCUS_PER_THOUSAND_LICENCES,
+  SECURITY_COPILOT_MONTHLY_CAP_SCUS,
+  includedSecurityCopilotScus,
 } from '../data/licenceBenefits'
 import { computeLicenceBenefits } from '../utils/licenceBenefits'
 import { SourceEstimateRow } from '../utils/ingestion'
@@ -32,6 +37,13 @@ interface Props {
   linuxServerGbPerDay: number
 }
 
+function formatScus(n: number): string {
+  const rounded = Math.round(n * 10) / 10
+  return Number.isInteger(rounded)
+    ? rounded.toLocaleString('en-GB')
+    : rounded.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
 // ─── Licence card ─────────────────────────────────────────────────────────────
 
 function LicenceCard({
@@ -45,6 +57,7 @@ function LicenceCard({
 }) {
   const isNone = lic.id === 'none'
   const isE5 = lic.id === 'e5'
+  const filledCount = isNone ? 0 : lic.id === 'e3' ? 1 : lic.id === 'e5-security' ? 3 : 4
 
   return (
     <button
@@ -66,11 +79,7 @@ function LicenceCard({
 
       <div className="flex gap-0.5 mb-2" aria-hidden="true">
         {[0, 1, 2, 3].map(i => {
-          const filled =
-            isNone ? false :
-            lic.id === 'e3' ? i < 1 :
-            lic.id === 'e5' ? i < 4 :
-            i < 3
+          const filled = i < filledCount
           return (
             <span
               key={i}
@@ -163,7 +172,7 @@ export function LicenceBenefits({
           Your Microsoft 365 licence
         </p>
         <div
-          className="grid grid-cols-2 md:grid-cols-4 gap-2"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-2"
           role="group"
           aria-labelledby="licence-group-label"
         >
@@ -180,7 +189,7 @@ export function LicenceBenefits({
             user is licensed over-credits any estate with F-series staff,
             contractors, guests or service accounts — and over-crediting
             understates the bill. */}
-        {(licence === 'e5' || licence === 'e5-security') && (
+        {E5_QUALIFYING_LICENCES.has(licence) && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <label htmlFor="licensed-seats" className="text-xs text-light/80">
               Licensed seats
@@ -191,18 +200,18 @@ export function LicenceBenefits({
               min={0}
               max={totalUsers}
               step={10}
-              value={licensedSeats ?? ''}
+              value={licensedSeats === null ? '' : Math.min(licensedSeats, totalUsers)}
               placeholder={String(totalUsers)}
               onChange={e => {
                 const v = e.target.value.trim()
-                onLicensedSeatsChange(v === '' ? null : Math.max(0, Number(v) || 0))
+                onLicensedSeatsChange(v === '' ? null : Math.min(totalUsers, Math.max(0, Number(v) || 0)))
               }}
               className="w-28 px-2 py-1 text-sm rounded-md bg-surface border border-white/15 text-light font-mono focus:outline-none focus:ring-2 focus:ring-primary"
             />
             <span className="text-[11px] text-light/60">
               {licensedSeats === null
                 ? `Assuming all ${totalUsers.toLocaleString()} users are licensed. Enter the real seat count if fewer are.`
-                : `${licensedSeats.toLocaleString()} of ${totalUsers.toLocaleString()} users. Guests, service accounts and F-series seats earn no grant.`}
+                : `${Math.min(licensedSeats, totalUsers).toLocaleString()} of ${totalUsers.toLocaleString()} users. Guests and service accounts earn no grant — count seats of this licence only.`}
             </span>
           </div>
         )}
@@ -219,6 +228,19 @@ export function LicenceBenefits({
           </div>
         )}
       </div>
+
+      {SECURITY_COPILOT_LICENCES.has(licence) && (
+        <div className="px-6 py-4 border-b border-white/10">
+          <h3 className="text-sm font-semibold text-light">Security Copilot included with E5 and E7</h3>
+          <p className="text-xs text-light/60 mt-1.5 leading-relaxed max-w-3xl">
+            Microsoft 365 E5 and E7 include {SECURITY_COPILOT_SCUS_PER_THOUSAND_LICENCES.toLocaleString('en-GB')} security
+            compute units a month for every 1,000 paid user licences, up to {SECURITY_COPILOT_MONTHLY_CAP_SCUS.toLocaleString('en-GB')} a month.
+            At {userCount.toLocaleString('en-GB')} licensed seats that is{' '}
+            {formatScus(includedSecurityCopilotScus(userCount))} SCUs/month.
+            That capacity can be used for Security Copilot in Microsoft Sentinel. The ingestion estimate is unchanged by this inclusion.
+          </p>
+        </div>
+      )}
 
       {/* Always-Free Sources (collapsible) */}
       <div className="border-b border-white/10">
@@ -268,16 +290,16 @@ export function LicenceBenefits({
           {benefits.e5IsActive && (
             <div className="px-6 py-4 border-b border-white/10">
               <div className="flex items-center gap-2 mb-3">
-                <h3 className="text-sm font-semibold text-light">M365 E5 Data Grant</h3>
+                <h3 className="text-sm font-semibold text-light">Microsoft 365 data grant</h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-primary-text uppercase tracking-widest">
                   Active
                 </span>
               </div>
               <p className="text-xs text-light/60 mb-4">
-                {E5_DATA_GRANT_GB_PER_USER_PER_DAY * 1000} MB/user/day billing credit, applied to
-                Entra ID plus the Defender advanced hunting data from Endpoint, Identity, Office 365
-                and Cloud Apps — Analytics tier only. Microsoft counts LICENSED SEATS of a
-                qualifying SKU, not total accounts.
+                {E5_DATA_GRANT_GB_PER_USER_PER_DAY * 1000} MB/user/day billing credit for Microsoft 365
+                E5, E7, A5, F5, G5 and E5 Security, applied to Entra ID plus the Defender advanced
+                hunting data from Endpoint, Identity, Office 365 and Cloud Apps — Analytics tier only.
+                Microsoft counts licensed seats of the qualifying SKU, not total accounts.
               </p>
 
               <div className="flex flex-col lg:flex-row gap-4">
@@ -344,13 +366,13 @@ export function LicenceBenefits({
           {!benefits.e5IsActive && (
             <div className="px-6 py-4 border-b border-white/10">
               <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-sm font-semibold text-light/50">M365 E5 Data Grant</h3>
+                <h3 className="text-sm font-semibold text-light/50">Microsoft 365 data grant</h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/5 border border-white/10 text-light/60 uppercase tracking-widest">
                   Not applicable
                 </span>
               </div>
               <p className="text-xs text-light/60">
-                Select M365 E5 or M365 E3 + E5 Security above to activate the 5 MB/user/day billing credit.
+                Select Microsoft 365 E5, E7, A5, F5, G5 or E5 Security above to activate the 5 MB/user/day billing credit.
               </p>
             </div>
           )}

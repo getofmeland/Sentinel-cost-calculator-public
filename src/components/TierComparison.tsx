@@ -1,19 +1,52 @@
-import { computeTierOptions } from '../utils/tiers'
-import { BILLING_RULES } from '../data/pricing'
+import { computeTierOptions, defenderIsocMonthlyUsd, isocSavingVersusClassicMonthly, promoTierSignupOpen } from '../utils/tiers'
+import { BILLING_RULES, DAYS_PER_MONTH, STATIC_PRICING_BUNDLE, type AnalyticsBillingMode } from '../data/pricing'
+import { isocBillingAllowed, type M365Licence } from '../data/licenceBenefits'
 import { usePricing } from '../contexts/PricingContext'
 import { TierTable } from './TierTable'
 import { BreakevenChart } from './BreakevenChart'
+import { formatUkDate } from '../utils/dates'
+import { fmtCurrency } from '../utils/currency'
 
 interface Props {
-  /** Only Analytics-tier GB — Basic and Auxiliary logs are not eligible for commitment tiers */
+  /** Analytics GB after licence grants. Commitment tiers are sized on this. */
   analyticsGbPerDay: number
+  /** Additional Analytics GB billed on the ISOC meter. Included Defender and Entra data is already removed. */
+  isocPaidGbPerDay: number
+  /** GB/day left off the ISOC meter because Microsoft lists it as included benefit data */
+  isocIncludedGbPerDay: number
+  /** Recommended classic Analytics cost for the month, net of grants and the best commitment tier */
+  classicAnalyticsMonthlyUsd: number
   /** Data Lake GB/day — excluded from commitment tier pricing */
   dataLakeGbPerDay?: number
+  analyticsBilling: AnalyticsBillingMode
+  onAnalyticsBillingChange: (mode: AnalyticsBillingMode) => void
+  licence: M365Licence
 }
 
-export function TierComparison({ analyticsGbPerDay, dataLakeGbPerDay = 0 }: Props) {
-  const { pricing, fxRate } = usePricing()
-  const options = computeTierOptions(analyticsGbPerDay, pricing, fxRate)
+export function TierComparison({
+  analyticsGbPerDay,
+  isocPaidGbPerDay,
+  isocIncludedGbPerDay,
+  classicAnalyticsMonthlyUsd,
+  dataLakeGbPerDay = 0,
+  analyticsBilling,
+  onAnalyticsBillingChange,
+  licence,
+}: Props) {
+  const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateNote } = usePricing()
+  const isocEligible = isocBillingAllowed(licence)
+  const options = computeTierOptions(analyticsGbPerDay, pricing, fxRate, promoTierSignupOpen())
+  const isocDaily = isocPaidGbPerDay * pricing.defenderIsocRateUsd
+  const isocMonthly = defenderIsocMonthlyUsd(isocPaidGbPerDay, pricing.defenderIsocRateUsd)
+  // A UK South ISOC fallback must not be compared with another region's live pay-as-you-go rate.
+  const paygRateForIsoc = defenderIsocRateNote ? STATIC_PRICING_BUNDLE.paygRateUsd : pricing.paygRateUsd
+  const paygMonthly = isocPaidGbPerDay * paygRateForIsoc * DAYS_PER_MONTH
+  const vsPaygPct = paygMonthly > 0 ? ((paygMonthly - isocMonthly) / paygMonthly) * 100 : 0
+  const vsClassic = isocSavingVersusClassicMonthly(classicAnalyticsMonthlyUsd, isocMonthly)
+
+  function fmt(usd: number, decimals = 2) {
+    return fmtCurrency(usd, displayCurrency, fxRate, eurRate, decimals)
+  }
 
   return (
     <div className="bg-surface rounded-xl border border-white/10 shadow-sm overflow-hidden">
@@ -31,6 +64,64 @@ export function TierComparison({ analyticsGbPerDay, dataLakeGbPerDay = 0 }: Prop
         )}
       </div>
 
+      <fieldset className="px-6 py-4 border-b border-white/10 bg-dark/40">
+        <legend className="text-[11px] font-semibold text-light/60 uppercase tracking-widest">
+          Analytics billing
+        </legend>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className={`flex gap-3 rounded-lg border px-3 py-3 cursor-pointer ${analyticsBilling === 'classic' ? 'border-primary bg-primary/10' : 'border-white/15'}`}>
+            <input
+              type="radio"
+              name="analytics-billing"
+              className="mt-0.5 accent-primary"
+              checked={analyticsBilling === 'classic'}
+              onChange={() => onAnalyticsBillingChange('classic')}
+            />
+            <span>
+              <span className="block text-sm font-medium text-light">Sentinel pay-as-you-go and commitment tiers</span>
+              <span className="block text-xs text-light/60 mt-1">
+                {fmt(pricing.paygRateUsd)}/GB pay-as-you-go. Commitment tiers below apply to Analytics volume only.
+              </span>
+            </span>
+          </label>
+          <label className={`flex gap-3 rounded-lg border px-3 py-3 ${isocEligible ? 'cursor-pointer' : 'opacity-60'} ${analyticsBilling === 'defender-isoc' ? 'border-primary bg-primary/10' : 'border-white/15'}`}>
+            <input
+              type="radio"
+              name="analytics-billing"
+              className="mt-0.5 accent-primary"
+              checked={analyticsBilling === 'defender-isoc'}
+              disabled={!isocEligible}
+              onChange={() => { if (isocEligible) onAnalyticsBillingChange('defender-isoc') }}
+            />
+            <span>
+              <span className="block text-sm font-medium text-light">Defender ISOC</span>
+              <span className="block text-xs text-light/60 mt-1">
+                {fmt(pricing.defenderIsocRateUsd)}/GB. No commitment tiers were in the UK South price list.
+                {isocEligible && (
+                  <> {fmt(isocDaily, 0)}/day · {fmt(isocMonthly, 0)}/month on additional data.</>
+                )}
+              </span>
+              {isocEligible && (
+                <span className="block text-xs text-light/60 mt-1">
+                  {fmt(Math.abs(vsClassic), 0)}/month {vsClassic >= 0 ? 'under' : 'above'} the recommended classic Analytics cost
+                  {isocPaidGbPerDay > 0 && vsPaygPct !== 0 && (
+                    <> · {Math.abs(vsPaygPct).toFixed(0)}% {vsPaygPct > 0 ? 'under' : 'above'} {defenderIsocRateNote ? 'the UK South pay-as-you-go rate' : 'pay-as-you-go on that additional volume'}</>
+                  )}.
+                </span>
+              )}
+              {defenderIsocRateNote && (
+                <span className="block text-xs text-light/60 mt-1">{defenderIsocRateNote}</span>
+              )}
+            </span>
+          </label>
+        </div>
+        <p className="text-xs text-light/60 mt-3 leading-relaxed">
+          {isocEligible
+            ? `Existing Sentinel customers with Microsoft 365 E5 or E7 can opt in from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)}. The announcement also names Microsoft Defender Suite, which this calculator does not model as its own licence. ${isocIncludedGbPerDay.toFixed(2)} GB/day of listed Defender for Endpoint (including server Device* telemetry), Identity and Office 365 data is left off the charge. Entra ID stays on the paid meter: the billing page lists sign-in and Graph API audit tables, but this source also models non-interactive sign-ins, managed-identity sign-ins and directory audit logs, which that list does not name. Defender for Cloud Apps stays on the paid meter for the same reason: it mixes included CloudAppEvents with unlisted Shadow IT discovery. There is no published split of either source, so keeping them on the meter makes the total an upper bound.`
+            : `Existing Sentinel customers can opt into Defender ISOC from ${formatUkDate(BILLING_RULES.defenderIsocOptInDate)} with Microsoft 365 E5 or E7. Select one of those licences to use this rate.`}
+        </p>
+      </fieldset>
+
       <TierTable options={options} billableGbPerDay={analyticsGbPerDay} />
 
       <div className="border-t border-white/10" />
@@ -44,9 +135,11 @@ export function TierComparison({ analyticsGbPerDay, dataLakeGbPerDay = 0 }: Prop
       {/* Footer note */}
       <div className="px-6 pb-5 text-xs text-light/60 space-y-1">
         <p>
-          * The 50 GB/day preview tier ({BILLING_RULES.promoTierExpiryDate.replace(/-/g, '\u2011')} expiry) is available
-          during the preview period; the minimum commitment tier thereafter is{' '}
-          {BILLING_RULES.minimumTierWithoutPromoGbPerDay} GB/day.
+          * The 50 GB/day tier is a public preview promotion. New sign-ups close on{' '}
+          {formatUkDate(BILLING_RULES.promoTierSignupDeadline)}. It is not available to new sign-ups after that
+          date, and it stays listed for customers who already hold it. Those customers keep the promotional
+          price until {formatUkDate(BILLING_RULES.promoTierExpiryDate)}. The smallest new commitment after
+          sign-ups close is {BILLING_RULES.minimumTierWithoutPromoGbPerDay} GB/day.
         </p>
         <p>
           ** Commitment tier changes require a {BILLING_RULES.downgradeWaitDays}-day wait before downgrading.

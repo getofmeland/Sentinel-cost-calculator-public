@@ -1,19 +1,31 @@
 import { IngestionSummary } from '../utils/ingestion'
 import { fmtCurrency } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
+import { splitIsocAnalyticsGb } from '../utils/tiers'
+import { getTierDefinition } from '../data/logTiers'
+import { BILLING_RULES, type AnalyticsBillingMode } from '../data/pricing'
+import { formatUkDate } from '../utils/dates'
 
 interface IngestionSummaryBarProps {
   summary: IngestionSummary
+  analyticsBilling?: AnalyticsBillingMode
 }
 
-export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
-  const { pricing, fxRate, displayCurrency, eurRate } = usePricing()
+export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: IngestionSummaryBarProps) {
+  const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateNote } = usePricing()
+  const isocVolume = splitIsocAnalyticsGb(summary.rows)
+  const isocSelected = analyticsBilling === 'defender-isoc'
 
   function fmt(usd: number, decimals = 0) {
     return fmtCurrency(usd, displayCurrency, fxRate, eurRate, decimals)
   }
 
   const dataLakeRateConverted = fmtCurrency(pricing.dataLakeRateUsd, displayCurrency, fxRate, eurRate, 2)
+  const isocRateConverted = fmtCurrency(pricing.defenderIsocRateUsd, displayCurrency, fxRate, eurRate, 2)
+  const lakeFreeDays = getTierDefinition('data-lake').freeRetentionDays
+  const lakeRetentionLabel = lakeFreeDays > 0
+    ? `${lakeFreeDays}-day free retention`
+    : 'no included free retention'
 
   if (summary.rows.length === 0) {
     return (
@@ -61,10 +73,33 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
           <p className="text-[10px] font-semibold text-warning/70 uppercase tracking-widest">Analytics</p>
           <p className="text-3xl font-bold font-mono mt-1 leading-none text-warning">{summary.analyticsGbPerDay.toFixed(2)}</p>
           <p className="text-xs text-light/50 mt-1">GB/day</p>
-          <p className="text-xs text-light/50 mt-1.5">
-            {fmt(summary.analyticsDailyCostUsd)}/day
-            <span className="text-light/60"> · commitment tiers apply</span>
+          {isocSelected ? (
+            <p className="text-xs text-primary-text mt-1.5">
+              Defender ISOC {fmt(isocVolume.paidGbPerDay * pricing.defenderIsocRateUsd)}/day
+              <span> · {isocRateConverted}/GB on additional data</span>
+            </p>
+          ) : (
+            <p className="text-xs text-light/60 mt-1.5">
+              {fmt(summary.analyticsDailyCostUsd)}/day
+              <span> · commitment tiers apply</span>
+            </p>
+          )}
+          {!isocSelected && (
+            <p className="text-xs text-light/60 mt-1">
+              Defender ISOC {isocRateConverted}/GB
+              <span> · UK South price list has no commitment tiers</span>
+            </p>
+          )}
+          <p className="text-[11px] text-light/60 mt-1 leading-snug">
+            Existing Sentinel customers with Microsoft 365 E5 or E7 can opt in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)}.
+            Listed Defender for Endpoint, Identity and Office 365 data is not on this meter.
+            CloudAppEvents are on Microsoft&apos;s included list, but Defender for Cloud Apps stays on the meter because this source also models unlisted Shadow IT discovery.
+            Entra ID stays on the meter too: the included list names sign-in and Graph API audit tables, and this source also models directory audit and other sign-in tables that list does not name.
+            There is no published split, so this figure is an upper bound.
           </p>
+          {defenderIsocRateNote && (
+            <p className="text-[11px] text-light/60 mt-1 leading-snug">{defenderIsocRateNote}</p>
+          )}
         </div>
 
         {/* Data Lake */}
@@ -73,7 +108,7 @@ export function IngestionSummaryBar({ summary }: IngestionSummaryBarProps) {
           <p className="text-3xl font-bold font-mono mt-1 leading-none text-primary-text">{summary.dataLakeGbPerDay.toFixed(2)}</p>
           <p className="text-xs text-light/50 mt-1">GB/day</p>
           <p className="text-xs text-light/50 mt-1.5">
-            {fmt(summary.dataLakeDailyCostUsd)}/day · {dataLakeRateConverted}/GB · 30-day free retention
+            {fmt(summary.dataLakeDailyCostUsd)}/day · {dataLakeRateConverted}/GB · {lakeRetentionLabel}
           </p>
         </div>
       </div>

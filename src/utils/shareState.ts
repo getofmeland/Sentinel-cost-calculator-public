@@ -4,7 +4,8 @@ import { SERVER_WORKLOADS } from '../data/serverWorkloads'
 import { LogTierKey } from '../data/logTiers'
 import { TshirtSize, TSHIRT_SIZES } from '../data/tshirtSizes'
 import { CompliancePresetId, COMPLIANCE_PRESETS } from '../data/compliancePresets'
-import { M365Licence, LICENCES } from '../data/licenceBenefits'
+import { M365Licence, LICENCES, isocBillingAllowed } from '../data/licenceBenefits'
+import { AnalyticsBillingMode } from '../data/pricing'
 import { CurrencyCode } from './currency'
 import { AZURE_REGION_GROUPS } from '../services/azurePricing'
 import {
@@ -58,6 +59,10 @@ export interface ShareableState {
   sizeOverrides: Record<string, TshirtSize>
   retentionStrategies: Record<string, RetentionStrategy>
   compute: ComputeConfig
+  /** Classic Sentinel billing unless the link explicitly selects Defender ISOC. */
+  analyticsBilling: AnalyticsBillingMode
+  /** Null means every user is treated as licensed. A number is the stated seat count. */
+  licensedSeats: number | null
 }
 
 export const DEFAULT_SHARE_STATE: ShareableState = {
@@ -81,6 +86,8 @@ export const DEFAULT_SHARE_STATE: ShareableState = {
   sizeOverrides: {},
   retentionStrategies: {},
   compute: DEFAULT_COMPUTE_CONFIG,
+  analyticsBilling: 'classic',
+  licensedSeats: null,
 }
 
 // ─── Known-value sets, used to reject anything a URL invents ──────────────────
@@ -95,6 +102,23 @@ const REGIONS = new Set(AZURE_REGION_GROUPS.flatMap(g => g.regions.map(r => r.ar
 const TIERS = new Set<LogTierKey>(['analytics', 'data-lake'])
 const STRATEGIES = new Set<RetentionStrategy>(['analytics-extended', 'data-lake-mirror'])
 const CURRENCIES = new Set<CurrencyCode>(['GBP', 'USD', 'EUR'])
+const BILLING_MODES = new Set<AnalyticsBillingMode>(['classic', 'defender-isoc'])
+
+/** A stated seat count cannot exceed the estimate's user count, or go below zero. */
+export function clampLicensedSeats(seats: number | null, userCount: number): number | null {
+  if (seats === null || !Number.isFinite(seats)) return null
+  const users = Number.isFinite(userCount) && userCount > 0 ? Math.trunc(userCount) : 0
+  return Math.min(users, Math.max(0, Math.trunc(seats)))
+}
+
+/** Defender ISOC is only kept when the licence can opt in. */
+export function coerceAnalyticsBilling(
+  mode: AnalyticsBillingMode,
+  licence: M365Licence,
+): AnalyticsBillingMode {
+  if (mode === 'defender-isoc' && !isocBillingAllowed(licence)) return 'classic'
+  return mode
+}
 
 // ─── Encoding ────────────────────────────────────────────────────────────────
 
@@ -132,6 +156,8 @@ export function encodeShareState(state: ShareableState): string {
   if (state.defenderEnabled) p.set('df', '1')
   if (state.region !== d.region) p.set('r', state.region)
   if (state.displayCurrency !== d.displayCurrency) p.set('c', state.displayCurrency)
+  if (state.analyticsBilling !== d.analyticsBilling) p.set('ab', state.analyticsBilling)
+  if (state.licensedSeats !== null) p.set('ls', String(state.licensedSeats))
 
   const maps: Array<[string, Record<string, string | number>]> = [
     ['sc', state.serverCounts],
@@ -237,6 +263,19 @@ export function decodeShareState(search: string): ShareableState | null {
 
   const currency = p.get('c')
   if (currency && CURRENCIES.has(currency as CurrencyCode)) state.displayCurrency = currency as CurrencyCode
+
+  const billing = p.get('ab')
+  if (billing && BILLING_MODES.has(billing as AnalyticsBillingMode)) {
+    state.analyticsBilling = billing as AnalyticsBillingMode
+  }
+
+  const seats = p.get('ls')
+  if (seats !== null) {
+    const n = clampInt(seats, 0, 100000)
+    if (n !== null) state.licensedSeats = clampLicensedSeats(n, state.userCount)
+  }
+
+  state.analyticsBilling = coerceAnalyticsBilling(state.analyticsBilling, state.licence)
 
   for (const [id, raw] of decodeMap(p.get('sc'))) {
     if (!WORKLOAD_IDS.has(id)) continue

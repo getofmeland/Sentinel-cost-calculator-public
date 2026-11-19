@@ -51,6 +51,8 @@ const fullState: ShareableState = {
     adiInteractiveSessionsPerMonth: 20,
     adiScheduledHoursPerMonth: 6,
   },
+  analyticsBilling: 'classic',
+  licensedSeats: null,
 }
 
 describe('share state round-trip', () => {
@@ -73,6 +75,34 @@ describe('share state round-trip', () => {
   it('keeps a realistic link short enough to paste', () => {
     const encoded = encodeShareState(fullState)
     expect(encoded.length).toBeLessThan(400)
+  })
+
+  it('round-trips a stated licensed-seat count and ignores a non-numeric one', () => {
+    const encoded = encodeShareState({ ...DEFAULT_SHARE_STATE, licensedSeats: 400 })
+    expect(encoded).toContain('ls=400')
+    expect(decodeShareState(encoded)?.licensedSeats).toBe(400)
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}`)!.licensedSeats).toBeNull()
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&ls=nope`)!.licensedSeats).toBeNull()
+  })
+
+  it('keeps Defender ISOC only for an eligible licence', () => {
+    const encoded = encodeShareState({
+      ...DEFAULT_SHARE_STATE,
+      licence: 'e5',
+      analyticsBilling: 'defender-isoc',
+    })
+    expect(encoded).toContain('ab=defender-isoc')
+    expect(decodeShareState(encoded)?.analyticsBilling).toBe('defender-isoc')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&l=e7&ab=defender-isoc`)!.analyticsBilling).toBe('defender-isoc')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&l=e3&ab=defender-isoc`)!.analyticsBilling).toBe('classic')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&l=e5-security&ab=defender-isoc`)!.analyticsBilling).toBe('classic')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&ab=free-money`)!.analyticsBilling).toBe('classic')
+  })
+
+  it('clamps licensed seats to the user count', () => {
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&u=100&ls=500`)!.licensedSeats).toBe(100)
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&u=100&ls=-5`)!.licensedSeats).toBe(0)
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&u=100&ls=40`)!.licensedSeats).toBe(40)
   })
 })
 

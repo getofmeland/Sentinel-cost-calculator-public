@@ -13,10 +13,10 @@
  *   curl "https://prices.azure.com/api/retail/prices?\$filter=serviceName%20eq%20'Sentinel'%20and%20armRegionName%20eq%20'uksouth'"
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 
-import { parsePayg, parseTiers, parseDataLake, type AzurePriceItem } from '../azurePricing'
-import { STATIC_PRICING_BUNDLE, PAYG_RATE_USD_PER_GB, DATA_LAKE_RATE_USD_PER_GB } from '../../data/pricing'
+import { parsePayg, parseTiers, parseDataLake, parseDefenderIsoc, parseAnalyticsRetention, fetchSentinelPricing, clearRegionCache, FAILURE_CACHE_TTL_MS, nextRegionalRateNote, REGIONAL_RATE_UNCONFIRMED_NOTE, REGIONAL_RATE_UNPUBLISHED_NOTE, REGIONAL_RATE_RETRY_NOTE, type AzurePriceItem } from '../azurePricing'
+import { STATIC_PRICING_BUNDLE, PAYG_RATE_USD_PER_GB, DATA_LAKE_RATE_USD_PER_GB, DEFENDER_ISOC_RATE_USD_PER_GB } from '../../data/pricing'
 import fixture from './sentinel-uksouth.fixture.json'
 
 const items = fixture.Items as AzurePriceItem[]
@@ -90,5 +90,228 @@ describe('parseTiers', () => {
 
   it('falls back to the static ladder when the response contains no tiers', () => {
     expect(parseTiers([], 5.38)).toBe(STATIC_PRICING_BUNDLE.commitmentTiers)
+  })
+})
+
+/**
+ * Recorded 19 November 2026 from
+ *   productName eq 'Microsoft Defender ISOC' and armRegionName eq 'uksouth'
+ * The Sentinel pay-as-you-go meter is hyphenated ("Pay-as-you-go Analysis")
+ * and is a different product. These rows are the ISOC product in full.
+ */
+const ISOC_UK_SOUTH: AzurePriceItem[] = [
+  { meterName: 'Data lake storage Data Stored', retailPrice: 0.024, unitOfMeasure: '1 GB/Month', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Free Data Ingestion Analysis', retailPrice: 0, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Pay As You Go Analysis', retailPrice: 2.88, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Defender Extended Retention Analysis', retailPrice: 1.44, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Analytics Logs Data Retention', retailPrice: 0.12, unitOfMeasure: '1 GB/Month', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+  { meterName: 'Data processing Data Processed', retailPrice: 0.12, unitOfMeasure: '1 GB', armRegionName: 'uksouth', productName: 'Microsoft Defender ISOC' },
+]
+
+describe('parseDefenderIsoc', () => {
+  it('reads the UK South pay-as-you-go meter and agrees with the static fallback', () => {
+    expect(parseDefenderIsoc(ISOC_UK_SOUTH)).toBe(2.88)
+    expect(parseDefenderIsoc(ISOC_UK_SOUTH)).toBe(DEFENDER_ISOC_RATE_USD_PER_GB)
+  })
+
+  it('reads the East US meter, which is the figure the announcement quotes', () => {
+    const eastUs: AzurePriceItem[] = [{
+      meterName: 'Pay As You Go Analysis',
+      retailPrice: 2.4,
+      unitOfMeasure: '1 GB',
+      armRegionName: 'eastus',
+      productName: 'Microsoft Defender ISOC',
+    }]
+    expect(parseDefenderIsoc(eastUs)).toBe(2.4)
+  })
+
+  it('does not treat the Sentinel pay-as-you-go meter as Defender ISOC', () => {
+    expect(parseDefenderIsoc(items)).toBeNull()
+  })
+
+  it('returns null when the meter is absent', () => {
+    expect(parseDefenderIsoc([])).toBeNull()
+  })
+
+  it('records that the ISOC product publishes no commitment-tier meters', () => {
+    expect(ISOC_UK_SOUTH.some(i => /commitment tier/i.test(i.meterName))).toBe(false)
+  })
+})
+
+describe('parseAnalyticsRetention', () => {
+  // Recorded 19 November 2026. serviceName 'Log Analytics', meter
+  // 'Analytics Logs Data Retention'. UK South matches the static fallback;
+  // East US and Australia East do not, which is why the rate is fetched live.
+  const logAnalytics: AzurePriceItem[] = [
+    { meterName: 'Analytics Logs Data Retention', retailPrice: 0.13, unitOfMeasure: '1 GB/Month', armRegionName: 'uksouth', productName: 'Log Analytics' },
+    { meterName: 'Analytics Logs Data Retention', retailPrice: 0.1, unitOfMeasure: '1 GB/Month', armRegionName: 'eastus', productName: 'Log Analytics' },
+    { meterName: 'Analytics Logs Data Retention', retailPrice: 0.15, unitOfMeasure: '1 GB/Month', armRegionName: 'australiaeast', productName: 'Log Analytics' },
+  ]
+
+  it('keeps the UK South rate that the static fallback already uses', () => {
+    expect(parseAnalyticsRetention([logAnalytics[0]])).toBe(0.13)
+    expect(parseAnalyticsRetention([logAnalytics[0]])).toBe(STATIC_PRICING_BUNDLE.analyticsExtendedRetentionRateUsd)
+  })
+
+  it('returns the regional rate rather than the UK South constant', () => {
+    expect(parseAnalyticsRetention([logAnalytics[1]])).toBe(0.1)
+    expect(parseAnalyticsRetention([logAnalytics[2]])).toBe(0.15)
+  })
+
+  it('ignores the Defender ISOC meter of the same name', () => {
+    const mixed = [ISOC_UK_SOUTH.find(i => i.meterName === 'Analytics Logs Data Retention')!, logAnalytics[0]]
+    expect(parseAnalyticsRetention(mixed)).toBe(0.13)
+  })
+})
+
+function priceResponse(body: unknown) {
+  return {
+    ok: true,
+    json: async () => body,
+  }
+}
+
+describe('fetchSentinelPricing optional meters', () => {
+  const region = 'isoc-fallback-test'
+  const sentinel = {
+    Items: [{
+      meterName: 'Pay-as-you-go Analysis',
+      retailPrice: 4.3,
+      unitOfMeasure: '1 GB',
+      armRegionName: region,
+      productName: 'Sentinel',
+    }],
+  }
+  const retention = {
+    Items: [{
+      meterName: 'Analytics Logs Data Retention',
+      retailPrice: 0.1,
+      unitOfMeasure: '1 GB/Month',
+      armRegionName: region,
+      productName: 'Log Analytics',
+    }],
+  }
+
+  afterEach(() => {
+    clearRegionCache(region)
+    clearRegionCache('eastus-revisit')
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('keeps a successful empty ISOC list on the short-lived UK South fallback, then allows another fetch once that cache expires', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input))
+      if (url.includes('Microsoft Defender ISOC')) return priceResponse({ Items: [] })
+      if (url.includes('Log Analytics')) return priceResponse(retention)
+      return priceResponse(sentinel)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const start = Date.parse('2026-11-19T00:00:00Z')
+    vi.setSystemTime(start)
+
+    const first = await fetchSentinelPricing(region)
+    expect(first.isLive).toBe(true)
+    expect(first.defenderIsocLookup).toBe('absent')
+    expect(first.defenderIsocRateIsFallback).toBe(true)
+    expect(first.analyticsRetentionRateIsFallback).toBe(false)
+    expect(first.bundle.defenderIsocRateUsd).toBe(DEFENDER_ISOC_RATE_USD_PER_GB)
+    expect(first.bundle.analyticsExtendedRetentionRateUsd).toBe(0.1)
+    const calls = fetchMock.mock.calls.length
+
+    vi.setSystemTime(start + 30_000)
+    await fetchSentinelPricing(region)
+    expect(fetchMock.mock.calls.length).toBe(calls)
+
+    vi.setSystemTime(start + FAILURE_CACHE_TTL_MS + 1_000)
+    await fetchSentinelPricing(region)
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(calls)
+  })
+
+  it('keeps a live regional ISOC rate when the region is read again inside the 24 hour cache', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input))
+      if (url.includes('Microsoft Defender ISOC')) {
+        return priceResponse({
+          Items: [{
+            meterName: 'Pay As You Go Analysis',
+            retailPrice: 2.4,
+            unitOfMeasure: '1 GB',
+            armRegionName: 'eastus',
+            productName: 'Microsoft Defender ISOC',
+          }],
+        })
+      }
+      if (url.includes('Log Analytics')) return priceResponse(retention)
+      return priceResponse({
+        Items: [{
+          meterName: 'Pay-as-you-go Analysis',
+          retailPrice: 4.3,
+          unitOfMeasure: '1 GB',
+          armRegionName: 'eastus',
+          productName: 'Sentinel',
+        }],
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const start = Date.parse('2026-11-19T00:00:00Z')
+    vi.setSystemTime(start)
+    const east = 'eastus-revisit'
+    clearRegionCache(east)
+
+    const first = await fetchSentinelPricing(east)
+    expect(first.fromCache).toBe(false)
+    expect(first.defenderIsocLookup).toBe('live')
+    expect(first.defenderIsocRateIsFallback).toBe(false)
+    expect(first.bundle.defenderIsocRateUsd).toBe(2.4)
+    const calls = fetchMock.mock.calls.length
+
+    vi.setSystemTime(start + 60 * 60 * 1000)
+    const second = await fetchSentinelPricing(east)
+    expect(fetchMock.mock.calls.length).toBe(calls)
+    expect(second.fromCache).toBe(true)
+    expect(second.defenderIsocLookup).toBe('live')
+    expect(second.analyticsRetentionLookup).toBe('live')
+    expect(second.defenderIsocRateIsFallback).toBe(false)
+    expect(second.bundle.defenderIsocRateUsd).toBe(2.4)
+    expect(nextRegionalRateNote(second.defenderIsocLookup, undefined).note).toBeNull()
+    clearRegionCache(east)
+  })
+
+  it('treats a failed optional query the same way as a response with no meter', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input))
+      if (url.includes('Microsoft Defender ISOC')) throw new Error('network')
+      if (url.includes('Log Analytics')) return priceResponse(retention)
+      return priceResponse(sentinel)
+    }))
+    const result = await fetchSentinelPricing(region)
+    expect(result.defenderIsocLookup).toBe('unavailable')
+    expect(result.defenderIsocRateIsFallback).toBe(true)
+    expect(result.bundle.paygRateUsd).toBe(4.3)
+    expect(result.isLive).toBe(true)
+  })
+})
+
+describe('nextRegionalRateNote', () => {
+  it('calls a rate unpublished only after a second successful empty list', () => {
+    const first = nextRegionalRateNote('absent', undefined)
+    expect(first.note).toBe(REGIONAL_RATE_RETRY_NOTE)
+    expect(first.retry).toBe(true)
+    const second = nextRegionalRateNote('absent', first.miss)
+    expect(second.note).toBe(REGIONAL_RATE_UNPUBLISHED_NOTE)
+    expect(second.retry).toBe(false)
+  })
+
+  it('does not treat a failed request or a cached fallback as proof the meter is unpublished', () => {
+    const failed = nextRegionalRateNote('unavailable', undefined)
+    expect(failed.note).toBe(REGIONAL_RATE_RETRY_NOTE)
+    const again = nextRegionalRateNote('unavailable', failed.miss)
+    expect(again.note).toBe(REGIONAL_RATE_UNCONFIRMED_NOTE)
+    const cached = nextRegionalRateNote('cached', undefined)
+    expect(cached.note).toBe(REGIONAL_RATE_UNCONFIRMED_NOTE)
+    expect(cached.retry).toBe(false)
   })
 })

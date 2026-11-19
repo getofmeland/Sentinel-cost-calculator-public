@@ -150,7 +150,7 @@ describe('COMMITMENT_TIERS integrity', () => {
 
 describe('computeTierOptions', () => {
   describe('at 0 GB/day', () => {
-    const options = computeTierOptions(0)
+    const options = computeTierOptions(0, STATIC_PRICING_BUNDLE, 0.7425, true)
 
     it('returns an array including PAYG and all commitment tiers', () => {
       // 1 PAYG + 7 commitment tiers = 8 total
@@ -177,7 +177,7 @@ describe('computeTierOptions', () => {
     // Expected values are derived from the tier table rather than written out,
     // so re-pricing does not require editing these assertions.
     const VOLUME = 200
-    const options = computeTierOptions(VOLUME, STATIC_PRICING_BUNDLE)
+    const options = computeTierOptions(VOLUME, STATIC_PRICING_BUNDLE, 0.7425, true)
     const paygDaily = VOLUME * PAYG_RATE_USD_PER_GB
     const tier100 = COMMITMENT_TIERS.find(t => t.gbPerDay === 100)!
     // Overage above the commitment is billed at the tier's own effective rate.
@@ -224,8 +224,8 @@ describe('computeTierOptions', () => {
       const baseRate = 0.79
       const doubledRate = baseRate * 2
 
-      const optionsBase = computeTierOptions(200, STATIC_PRICING_BUNDLE, baseRate)
-      const optionsDouble = computeTierOptions(200, STATIC_PRICING_BUNDLE, doubledRate)
+      const optionsBase = computeTierOptions(200, STATIC_PRICING_BUNDLE, baseRate, true)
+      const optionsDouble = computeTierOptions(200, STATIC_PRICING_BUNDLE, doubledRate, true)
 
       optionsBase.forEach((base, idx) => {
         const doubled = optionsDouble[idx]
@@ -1084,7 +1084,12 @@ describe('optimisedMonthly applies the licence grant exactly once', () => {
     expect(licenceBenefits.billableAnalyticsGbPerDay).toBeLessThan(summary.analyticsGbPerDay) // sanity: netting happened
 
     // Step 3: commitment tier is recommended against the ALREADY-NETTED volume
-    const commitmentOptions = computeTierOptions(licenceBenefits.billableAnalyticsGbPerDay, STATIC_PRICING_BUNDLE, 0.79)
+    const commitmentOptions = computeTierOptions(
+      licenceBenefits.billableAnalyticsGbPerDay,
+      STATIC_PRICING_BUNDLE,
+      0.79,
+      true,
+    )
     const recommendedOption = commitmentOptions.find(o => o.isRecommended && !o.isPayg)
     expect(recommendedOption).toBeDefined() // sanity: a commitment tier IS recommended at this volume
 

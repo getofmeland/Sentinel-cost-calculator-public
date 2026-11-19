@@ -1,5 +1,5 @@
 import { LOG_SOURCES, LogSource, PAYG_RATE_USD_PER_GB, EXCHANGE_RATE_USD_TO_GBP, DATA_LAKE_COMPRESSION_RATIO, RetentionStrategy, PricingBundle, STATIC_PRICING_BUNDLE } from '../data/pricing'
-import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition } from '../data/logTiers'
+import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition, defaultSelectedRetentionDays } from '../data/logTiers'
 import { interpolateRange } from '../data/tshirtSizes'
 import { round2 } from './round'
 
@@ -192,7 +192,6 @@ export function summariseIngestion(
         sourceSizeMultipliers[source.id] ?? 0.5,
       )
       const logTier: LogTierKey = (logTiers[source.id] as LogTierKey | undefined) ?? DEFAULT_LOG_TIER
-      const tierDef = getTierDefinition(logTier)
       const logTierRate = logTier === 'data-lake' ? pricing.dataLakeRateUsd : pricing.paygRateUsd
       const dailyCostUsd = source.isFree ? 0 : round2(gbPerDay * logTierRate)
 
@@ -201,7 +200,7 @@ export function summariseIngestion(
           ? 'data-lake-mirror'   // sentinel value for native DL — aggregated separately
           : (retentionStrategies[source.id] ?? 'data-lake-mirror')
 
-      const selectedRetention = retentionDays[source.id] ?? tierDef.freeRetentionDays
+      const selectedRetention = retentionDays[source.id] ?? defaultSelectedRetentionDays(logTier)
       const retentionMonthlyCostUsd = source.isFree
         ? 0
         : retentionCostUsd(gbPerDay, selectedRetention, logTier, effectiveStrategy, pricing)

@@ -27,7 +27,7 @@ export function RetentionStrategyPanel({
   retentionDays,
   hasCustomPerSource,
 }: RetentionStrategyPanelProps) {
-  const { pricing, fxRate, displayCurrency, eurRate } = usePricing()
+  const { pricing, fxRate, displayCurrency, eurRate, analyticsRetentionRateNote } = usePricing()
 
   // Query charges are quoted per GB scanned. Three decimals because the rate is
   // fractions of a penny — rounding to two would render it as zero.
@@ -58,6 +58,11 @@ export function RetentionStrategyPanel({
   return (
     <div className="space-y-3">
       {/* Section 1 — Global segmented control */}
+      {analyticsRetentionRateNote && (
+        <p className="text-xs text-light/60">
+          Extended Analytics retention: {analyticsRetentionRateNote}
+        </p>
+      )}
       <div className="flex items-center gap-3">
         <span className="text-xs font-semibold text-light/50 uppercase tracking-widest whitespace-nowrap">
           Retention strategy

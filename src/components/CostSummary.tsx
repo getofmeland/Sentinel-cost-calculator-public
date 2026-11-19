@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { IngestionSummary } from '../utils/ingestion'
-import { TierOption, costAtVolume } from '../utils/tiers'
-import { DAYS_PER_MONTH } from '../data/pricing'
+import { TierOption, costAtVolume, defenderIsocMonthlyUsd, splitIsocAnalyticsGb } from '../utils/tiers'
+import { DAYS_PER_MONTH, type AnalyticsBillingMode } from '../data/pricing'
 import { fmtCurrency } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
 
@@ -18,6 +18,9 @@ interface Props {
   analyticsNetGbPerDay: number
   /** Opt-in data lake compute (graph + notebooks), monthly USD. Zero unless enabled. */
   computeMonthlyUsd: number
+  analyticsBilling: AnalyticsBillingMode
+  onAnalyticsBillingChange: (mode: AnalyticsBillingMode) => void
+  isocEligible: boolean
 }
 
 function SavingBadge({ pct }: { pct: number }) {
@@ -62,8 +65,12 @@ export function CostSummary({
   analyticsGrossGbPerDay,
   analyticsNetGbPerDay,
   computeMonthlyUsd,
+  analyticsBilling,
+  onAnalyticsBillingChange,
+  isocEligible,
 }: Props) {
-  const { fxRate, displayCurrency, eurRate } = usePricing()
+  const { fxRate, displayCurrency, eurRate, pricing } = usePricing()
+  const isocSelected = analyticsBilling === 'defender-isoc'
   const tierOptions = commitmentOptions.filter(o => !o.isPayg)
   const recommendedTier = commitmentOptions.find(o => o.isRecommended && !o.isPayg)
 
@@ -135,9 +142,19 @@ export function CostSummary({
     0, commitmentNetMonthly + dataLakeMonthly + retentionMonthly + computeMonthly,
   )
 
+  // Defender ISOC prices additional Analytics data only. Listed native Defender
+  // and Entra sources are included in the benefit and are not on this meter.
+  const isocVolume = splitIsocAnalyticsGb(summary.rows)
+  const isocAnalyticsMonthly = defenderIsocMonthlyUsd(isocVolume.paidGbPerDay, pricing.defenderIsocRateUsd)
+  const isocTotal = Math.max(0, isocAnalyticsMonthly + dataLakeMonthly + retentionMonthly + computeMonthly)
+  const scenarioAnalyticsMonthly = isocSelected ? isocAnalyticsMonthly : commitmentGrossMonthly
+  const scenarioTotal = isocSelected ? isocTotal : commitmentOptimisedTotal
+  const scenarioDefenderCredit = isocSelected ? 0 : commitmentDefenderCredit
+  const scenarioE5Credit = isocSelected ? 0 : commitmentE5Credit
+
   // ── vs-PAYG percentages ──────────────────────────────────────────────────
   const savingsPct    = paygTotal > 0 ? ((paygTotal - withSavingsTotal)    / paygTotal) * 100 : 0
-  const optimisedPct  = paygTotal > 0 ? ((paygTotal - commitmentOptimisedTotal) / paygTotal) * 100 : 0
+  const optimisedPct  = paygTotal > 0 ? ((paygTotal - scenarioTotal) / paygTotal) * 100 : 0
 
   const isEmpty = summary.rows.length === 0
 
@@ -169,10 +186,18 @@ export function CostSummary({
             </label>
             <select
               id="summary-tier-select"
-              value={selectedTierLabel}
-              onChange={e => setChosenTierLabel(e.target.value)}
+              value={isocSelected ? 'defender-isoc' : selectedTierLabel}
+              onChange={e => {
+                if (e.target.value === 'defender-isoc') {
+                  onAnalyticsBillingChange('defender-isoc')
+                  return
+                }
+                onAnalyticsBillingChange('classic')
+                setChosenTierLabel(e.target.value)
+              }}
               className="text-sm border border-white/15 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-light"
             >
+              {isocEligible && <option value="defender-isoc">Defender ISOC</option>}
               {tierOptions.map(o => (
                 <option key={o.label} value={o.label}>
                   {o.label}{o.isRecommended ? ' ★ Recommended' : ''}
@@ -194,8 +219,10 @@ export function CostSummary({
                 <span className="hidden sm:inline">With </span>savings
               </th>
               <th className="px-4 py-3 text-right font-medium">
-                {selectedTier ? selectedTier.tier!.gbPerDay.toLocaleString() + ' GB/day' : '—'}
-                <span className="hidden sm:inline"> + savings</span>
+                {isocSelected
+                  ? 'Defender ISOC'
+                  : (selectedTier ? selectedTier.tier!.gbPerDay.toLocaleString() + ' GB/day' : '—')}
+                {!isocSelected && <span className="hidden sm:inline"> + savings</span>}
               </th>
             </tr>
           </thead>
@@ -207,12 +234,19 @@ export function CostSummary({
               <CostCell usd={analyticsMonthly} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
               <CostCell usd={analyticsMonthly} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
               <td className="px-4 py-2.5 text-right font-mono text-sm text-light/70">
-                {selectedTier
-                  ? <span className="text-primary-text">{fmt(commitmentGrossMonthly)}</span>
-                  : fmt(analyticsMonthly)}
-                {commitmentAnalyticsSaving > 0 && (
+                {isocSelected
+                  ? <span className="text-primary-text">{fmt(scenarioAnalyticsMonthly)}</span>
+                  : selectedTier
+                    ? <span className="text-primary-text">{fmt(commitmentGrossMonthly)}</span>
+                    : fmt(analyticsMonthly)}
+                {!isocSelected && commitmentAnalyticsSaving > 0 && (
                   <span className="block text-[10px] text-primary-text/70 font-normal">
                     −{fmt(commitmentAnalyticsSaving)} committed
+                  </span>
+                )}
+                {isocSelected && (
+                  <span className="block text-[10px] text-light/60 font-normal">
+                    additional data
                   </span>
                 )}
               </td>
@@ -282,13 +316,13 @@ export function CostSummary({
               </td>
               <td className="px-4 py-2.5 text-right text-light/60 text-sm">—</td>
               <SavingCell usd={defenderSavedMonthlyUsd} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
-              <SavingCell usd={commitmentDefenderCredit} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
+              <SavingCell usd={scenarioDefenderCredit} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
             </tr>
 
             {/* M365 E5 data grant saving */}
             <tr>
               <td className="px-4 py-2.5 text-light/70">
-                M365 E5 data grant (Entra ID &amp; Defender)
+                Microsoft 365 data grant (Entra ID &amp; Defender)
                 {e5SavedMonthlyUsd === 0 && (
                   <span className="ml-1.5 text-[10px] text-light/60">
                     {licenceLabel === 'None / M365 E1' || licenceLabel === 'Microsoft 365 E3'
@@ -299,7 +333,7 @@ export function CostSummary({
               </td>
               <td className="px-4 py-2.5 text-right text-light/60 text-sm">—</td>
               <SavingCell usd={e5SavedMonthlyUsd} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
-              <SavingCell usd={commitmentE5Credit} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
+              <SavingCell usd={scenarioE5Credit} fxRate={fxRate} displayCurrency={displayCurrency} eurRate={eurRate} />
             </tr>
 
             {/* Total rows */}
@@ -315,7 +349,7 @@ export function CostSummary({
               </td>
               <td className="px-4 py-4 text-right">
                 <span className={`text-2xl font-bold font-mono ${optimisedPct > 0 ? 'text-primary-text' : 'text-light'}`}>
-                  {fmt(commitmentOptimisedTotal)}
+                  {fmt(scenarioTotal)}
                 </span>
                 {optimisedPct > 0 && (
                   <span className="ml-2 inline-block bg-accent text-dark text-xs font-bold px-1.5 py-0.5 rounded">
@@ -338,10 +372,11 @@ export function CostSummary({
 
       {/* Footer note */}
       <div className="px-6 py-3 border-t border-white/10 text-[11px] text-light/60 leading-relaxed">
-        Licence benefits (E5 data grant and Defender for Servers) are billing credits — all data is still ingested.
+        Licence benefits (the Microsoft 365 data grant and Defender for Servers) are billing credits — all data is still ingested.
         In the PAYG columns they are valued at the PAYG rate; in the commitment column at that tier's discounted rate,
         which is why the credit is smaller there. Each credit is applied once.
-        Data Lake and retention costs are unchanged by commitment tier or licence benefits.
+        Defender ISOC is a flat alternative for Analytics ingestion. Those Sentinel credits are left off that column.
+        Data Lake and retention costs are unchanged by commitment tier, Defender ISOC, or licence benefits.
         Retention shown as a monthly charge; all other costs derived from daily estimates × {DAYS_PER_MONTH} days.
         These are planning estimates based on public list pricing, not a quote.
       </div>
