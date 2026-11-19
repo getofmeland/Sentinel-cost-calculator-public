@@ -53,6 +53,31 @@ export const PAYG_RATE_USD_PER_GB = 5.38
  */
 export const DEFENDER_ISOC_RATE_USD_PER_GB = 2.88
 
+/**
+ * Analytics sources whose tables Microsoft lists as included ISOC security
+ * data, so they are not billed on "Pay As You Go Analysis".
+ *
+ * The billing page says native Defender data is part of the ISOC benefit and
+ * that only additional Microsoft and non-Microsoft data is billed separately.
+ * The listed tables are the Device* set (Defender for Endpoint, including
+ * servers), Identity* (Defender for Identity), the Defender for Office 365
+ * email tables, CloudAppEvents (Defender for Cloud Apps) and the Entra sign-in
+ * and Graph API audit tables.
+ * https://learn.microsoft.com/en-us/defender-xdr/integrated-security-operations-data-billing-retention
+ *
+ * mdca also models Shadow IT discovery, which that page does not list. The
+ * whole source is left off the meter and the UI says the ISOC total is an
+ * upper bound where the list is silent, rather than inventing a split.
+ */
+export const ISOC_INCLUDED_ANALYTICS_SOURCE_IDS: ReadonlySet<string> = new Set([
+  'entra-id',
+  'mde',
+  'mde-servers',
+  'mdi',
+  'mdo',
+  'mdca',
+])
+
 /** How the Analytics-plan gigabytes in an estimate are billed. */
 export type AnalyticsBillingMode = 'classic' | 'defender-isoc'
 

@@ -68,9 +68,9 @@ export const LICENCES: LicenceDefinition[] = [
   },
   {
     id: 'f5',
-    label: 'Microsoft 365 F5',
-    shortLabel: 'F5',
-    description: 'Same 5 MB Sentinel data grant as E5',
+    label: 'Microsoft 365 F5 Security',
+    shortLabel: 'F5 Security',
+    description: 'Security add-on — same 5 MB data grant',
     includes: ['5 MB/user/day Microsoft 365 data grant'],
   },
   {
@@ -150,6 +150,19 @@ export const SECURITY_COPILOT_MONTHLY_CAP_SCUS = 10_000
 
 /** The inclusion article names E5 and E7. Other grant SKUs are not listed. */
 export const SECURITY_COPILOT_LICENCES: ReadonlySet<M365Licence> = new Set(['e5', 'e7'])
+
+/**
+ * Licences that can opt into Defender ISOC.
+ * The Ignite 2026 post names Microsoft 365 E5, Microsoft 365 E7 and Microsoft
+ * Defender Suite. This calculator has no Defender Suite licence, so that path
+ * cannot be selected here. E5 Security is not named in that post.
+ * https://techcommunity.microsoft.com/blog/microsoftsentinelblog/ignite-2026-whats-new-in-microsoft-sentinel/4571174
+ */
+export const ISOC_ELIGIBLE_LICENCES: ReadonlySet<M365Licence> = new Set(['e5', 'e7'])
+
+export function isocBillingAllowed(licence: M365Licence): boolean {
+  return ISOC_ELIGIBLE_LICENCES.has(licence)
+}
 
 /** Included SCUs for a paid-licence count. Zero when the count is not usable. */
 export function includedSecurityCopilotScus(paidUserLicences: number): number {

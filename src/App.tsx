@@ -103,8 +103,8 @@ function AppShell() {
           </div>
 
           <p className="text-xs text-light/60 leading-relaxed max-w-3xl">
-            From {formatUkDate(BILLING_RULES.azurePortalRetirementDate)}, Microsoft Sentinel in the Azure portal
-            is retired. Sentinel stays available in the Microsoft Defender portal.
+            After {formatUkDate(BILLING_RULES.azurePortalRetirementDate)}, Microsoft Sentinel is no longer
+            supported in the Azure portal. It remains available in the Microsoft Defender portal.
           </p>
 
           {/* Region + FX + Currency controls */}

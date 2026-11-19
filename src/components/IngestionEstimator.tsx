@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { LOG_SOURCES, DAYS_PER_MONTH, RetentionStrategy, type AnalyticsBillingMode } from '../data/pricing'
 import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
 import { LogTierKey, DEFAULT_LOG_TIER, getTierDefinition, defaultSelectedRetentionDays } from '../data/logTiers'
-import { M365Licence, LICENCES } from '../data/licenceBenefits'
+import { M365Licence, LICENCES, isocBillingAllowed } from '../data/licenceBenefits'
 import { summariseIngestion, estimateSourceGbPerDay, scaledDeviceCount } from '../utils/ingestion'
 import { computeLicenceBenefits } from '../utils/licenceBenefits'
-import { computeTierOptions, defenderIsocMonthlyUsd } from '../utils/tiers'
+import { computeTierOptions, defenderIsocMonthlyUsd, splitIsocAnalyticsGb } from '../utils/tiers'
 import { getDefaultTier } from '../data/tierPlacement'
 import { CompliancePresetId, getPreset } from '../data/compliancePresets'
 import { TshirtSize, TSHIRT_SIZES, DEFAULT_TSHIRT_SIZE, getSizeMultiplier } from '../data/tshirtSizes'
@@ -30,6 +30,8 @@ import { ShareBar } from './ShareBar'
 import {
   loadInitialState,
   saveToStorage,
+  clampLicensedSeats,
+  coerceAnalyticsBilling,
   type ShareableState,
 } from '../utils/shareState'
 import { buildEstimateCsv, downloadCsv } from '../utils/csvExport'
@@ -104,15 +106,20 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   const [licence, setLicence] = useState<M365Licence>(restored?.licence ?? 'none')
   const [defenderEnabled, setDefenderEnabled] = useState(restored?.defenderEnabled ?? false)
   /** Null means "assume every user is licensed", the previous behaviour. */
-  const [licensedSeats, setLicensedSeats] = useState<number | null>(restored?.licensedSeats ?? null)
+  const [licensedSeats, setLicensedSeats] = useState<number | null>(
+    clampLicensedSeats(restored?.licensedSeats ?? null, restored?.userCount ?? 500),
+  )
 
   // ── Opt-in data lake compute (graph + notebooks) ───────────────────────
   const [computeConfig, setComputeConfig] = useState<ComputeConfig>(
     restored?.compute ?? DEFAULT_COMPUTE_CONFIG,
   )
   const [analyticsBilling, setAnalyticsBilling] = useState<AnalyticsBillingMode>(
-    restored?.analyticsBilling ?? 'classic',
+    coerceAnalyticsBilling(restored?.analyticsBilling ?? 'classic', restored?.licence ?? 'none'),
   )
+  // Drop ISOC when the licence cannot opt in, including a restored share link.
+  const billing = coerceAnalyticsBilling(analyticsBilling, licence)
+  if (billing !== analyticsBilling) setAnalyticsBilling(billing)
 
   // Region and currency live in PricingContext, so push the restored values up
   // once rather than duplicating that state here.
@@ -147,14 +154,14 @@ export function IngestionEstimator({ onPresetChange }: Props) {
     sizeOverrides: sourceSizeOverrides,
     retentionStrategies,
     compute: computeConfig,
-    analyticsBilling,
-    licensedSeats,
+    analyticsBilling: billing,
+    licensedSeats: clampLicensedSeats(licensedSeats, userCount),
   }), [
     userCount, selectedIds, globalSize, activePresetId, mifidExtended,
     globalRetentionStrategy, licence, defenderEnabled, region, displayCurrency,
     serverCounts, serverLevels, deviceCounts, logTiers, retentionDays,
     selectedVariants, manualGbValues, sourceSizeOverrides, retentionStrategies,
-    computeConfig, analyticsBilling, licensedSeats,
+    computeConfig, billing, licensedSeats,
   ])
 
   // Autosave, debounced so dragging the user slider does not thrash storage.
@@ -215,7 +222,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
   //
   // Defaults to userCount so an untouched estimate behaves as before; the
   // moment someone enters a seat count it takes over.
-  const effectiveSeats = licensedSeats ?? userCount
+  const effectiveSeats = clampLicensedSeats(licensedSeats, userCount) ?? userCount
   const licenceBenefits = computeLicenceBenefits(
     summary.rows, summary.analyticsGbPerDay, licence,
     effectiveSeats, defenderEnabled, totalEnrolledServers, pricing,
@@ -262,16 +269,17 @@ export function IngestionEstimator({ onPresetChange }: Props) {
       + summary.retentionMonthlyCostUsd
       + computeMonthly,
   )
-  // ISOC prices gross Analytics volume. Licence grants are Sentinel credits and
-  // are not applied on top of this meter.
+  // ISOC bills additional data only. Listed native Defender and Entra sources
+  // are included in the benefit and are not on the paid meter.
+  const isocVolume = splitIsocAnalyticsGb(summary.rows)
   const isocMonthly = Math.max(
     0,
-    defenderIsocMonthlyUsd(summary.analyticsGbPerDay, pricing.defenderIsocRateUsd)
+    defenderIsocMonthlyUsd(isocVolume.paidGbPerDay, pricing.defenderIsocRateUsd)
       + summary.dataLakeDailyCostUsd * DAYS_PER_MONTH
       + summary.retentionMonthlyCostUsd
       + computeMonthly,
   )
-  const optimisedMonthly = analyticsBilling === 'defender-isoc' ? isocMonthly : classicOptimisedMonthly
+  const optimisedMonthly = billing === 'defender-isoc' ? isocMonthly : classicOptimisedMonthly
 
   // ── Handlers ───────────────────────────────────────────────────────────
   function handleSliderChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -469,8 +477,9 @@ export function IngestionEstimator({ onPresetChange }: Props) {
       withSavingsMonthlyUsd: withSavingsMonthly,
       optimisedMonthlyUsd: optimisedMonthly,
       recommendedTierLabel: recommendedOption?.label ?? 'Pay-as-you-go',
-      analyticsBilling,
+      analyticsBilling: billing,
       defenderIsocRateUsd: pricing.defenderIsocRateUsd,
+      licensedSeats: clampLicensedSeats(licensedSeats, userCount),
       userCount,
       region: regionDisplayName,
       compute: computeCosts,
@@ -731,7 +740,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
 
       {/* Summary bar */}
       <div className="px-6 pb-6">
-        <IngestionSummaryBar summary={summary} analyticsBilling={analyticsBilling} />
+        <IngestionSummaryBar summary={summary} analyticsBilling={billing} />
       </div>
     </div>
   )
@@ -765,7 +774,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           analyticsDailyCostUsd={summary.analyticsDailyCostUsd}
           dataLakeDailyCostUsd={summary.dataLakeDailyCostUsd}
           recommendedAnalyticsRateUsd={recommendedAnalyticsRateUsd}
-          analyticsBilling={analyticsBilling}
+          analyticsBilling={billing}
         />
       </div>
 
@@ -788,10 +797,13 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         <ComputeCostPanel config={computeConfig} onChange={setComputeConfig} />
         <TierComparison
           analyticsGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
-          analyticsGrossGbPerDay={summary.analyticsGbPerDay}
+          isocPaidGbPerDay={isocVolume.paidGbPerDay}
+          isocIncludedGbPerDay={isocVolume.includedGbPerDay}
+          classicAnalyticsMonthlyUsd={analyticsCommitmentMonthly}
           dataLakeGbPerDay={summary.dataLakeGbPerDay}
-          analyticsBilling={analyticsBilling}
+          analyticsBilling={billing}
           onAnalyticsBillingChange={setAnalyticsBilling}
+          licence={licence}
         />
       </div>
 
@@ -806,8 +818,9 @@ export function IngestionEstimator({ onPresetChange }: Props) {
           analyticsGrossGbPerDay={summary.analyticsGbPerDay}
           analyticsNetGbPerDay={licenceBenefits.billableAnalyticsGbPerDay}
           computeMonthlyUsd={computeMonthly}
-          analyticsBilling={analyticsBilling}
+          analyticsBilling={billing}
           onAnalyticsBillingChange={setAnalyticsBilling}
+          isocEligible={isocBillingAllowed(licence)}
         />
       </div>
 
@@ -816,7 +829,7 @@ export function IngestionEstimator({ onPresetChange }: Props) {
         withSavingsMonthly={withSavingsMonthly}
         optimisedMonthly={optimisedMonthly}
         isEmpty={isEmpty}
-        scenarioLabel={analyticsBilling === 'defender-isoc' ? 'Defender ISOC' : 'Best case'}
+        scenarioLabel={billing === 'defender-isoc' ? 'Defender ISOC' : 'Best case'}
       />
     </div>
   )

@@ -4,7 +4,7 @@ import { SERVER_WORKLOADS } from '../data/serverWorkloads'
 import { LogTierKey } from '../data/logTiers'
 import { TshirtSize, TSHIRT_SIZES } from '../data/tshirtSizes'
 import { CompliancePresetId, COMPLIANCE_PRESETS } from '../data/compliancePresets'
-import { M365Licence, LICENCES } from '../data/licenceBenefits'
+import { M365Licence, LICENCES, isocBillingAllowed } from '../data/licenceBenefits'
 import { AnalyticsBillingMode } from '../data/pricing'
 import { CurrencyCode } from './currency'
 import { AZURE_REGION_GROUPS } from '../services/azurePricing'
@@ -103,6 +103,22 @@ const TIERS = new Set<LogTierKey>(['analytics', 'data-lake'])
 const STRATEGIES = new Set<RetentionStrategy>(['analytics-extended', 'data-lake-mirror'])
 const CURRENCIES = new Set<CurrencyCode>(['GBP', 'USD', 'EUR'])
 const BILLING_MODES = new Set<AnalyticsBillingMode>(['classic', 'defender-isoc'])
+
+/** A stated seat count cannot exceed the estimate's user count, or go below zero. */
+export function clampLicensedSeats(seats: number | null, userCount: number): number | null {
+  if (seats === null || !Number.isFinite(seats)) return null
+  const users = Number.isFinite(userCount) && userCount > 0 ? Math.trunc(userCount) : 0
+  return Math.min(users, Math.max(0, Math.trunc(seats)))
+}
+
+/** Defender ISOC is only kept when the licence can opt in. */
+export function coerceAnalyticsBilling(
+  mode: AnalyticsBillingMode,
+  licence: M365Licence,
+): AnalyticsBillingMode {
+  if (mode === 'defender-isoc' && !isocBillingAllowed(licence)) return 'classic'
+  return mode
+}
 
 // ─── Encoding ────────────────────────────────────────────────────────────────
 
@@ -256,8 +272,10 @@ export function decodeShareState(search: string): ShareableState | null {
   const seats = p.get('ls')
   if (seats !== null) {
     const n = clampInt(seats, 0, 100000)
-    if (n !== null) state.licensedSeats = n
+    if (n !== null) state.licensedSeats = clampLicensedSeats(n, state.userCount)
   }
+
+  state.analyticsBilling = coerceAnalyticsBilling(state.analyticsBilling, state.licence)
 
   for (const [id, raw] of decodeMap(p.get('sc'))) {
     if (!WORKLOAD_IDS.has(id)) continue

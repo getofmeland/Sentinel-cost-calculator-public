@@ -5,7 +5,6 @@ import { SourceEstimateRow } from '../utils/ingestion'
 import { fmtCurrency } from '../utils/currency'
 import { fmtRetentionOption } from '../utils/retention'
 import { usePricing } from '../contexts/PricingContext'
-import { REGIONAL_RATE_FALLBACK_NOTE } from '../services/azurePricing'
 
 interface RetentionStrategyPanelProps {
   globalStrategy: RetentionStrategy
@@ -28,7 +27,7 @@ export function RetentionStrategyPanel({
   retentionDays,
   hasCustomPerSource,
 }: RetentionStrategyPanelProps) {
-  const { pricing, fxRate, displayCurrency, eurRate, analyticsRetentionRateIsFallback } = usePricing()
+  const { pricing, fxRate, displayCurrency, eurRate, analyticsRetentionRateNote } = usePricing()
 
   // Query charges are quoted per GB scanned. Three decimals because the rate is
   // fractions of a penny — rounding to two would render it as zero.
@@ -59,9 +58,9 @@ export function RetentionStrategyPanel({
   return (
     <div className="space-y-3">
       {/* Section 1 — Global segmented control */}
-      {analyticsRetentionRateIsFallback && (
+      {analyticsRetentionRateNote && (
         <p className="text-xs text-light/60">
-          Extended Analytics retention: {REGIONAL_RATE_FALLBACK_NOTE}
+          Extended Analytics retention: {analyticsRetentionRateNote}
         </p>
       )}
       <div className="flex items-center gap-3">

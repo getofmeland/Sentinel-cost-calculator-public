@@ -85,11 +85,24 @@ describe('share state round-trip', () => {
     expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&ls=nope`)!.licensedSeats).toBeNull()
   })
 
-  it('round-trips Defender ISOC billing and ignores an unknown value', () => {
-    const encoded = encodeShareState({ ...DEFAULT_SHARE_STATE, analyticsBilling: 'defender-isoc' })
+  it('keeps Defender ISOC only for an eligible licence', () => {
+    const encoded = encodeShareState({
+      ...DEFAULT_SHARE_STATE,
+      licence: 'e5',
+      analyticsBilling: 'defender-isoc',
+    })
     expect(encoded).toContain('ab=defender-isoc')
     expect(decodeShareState(encoded)?.analyticsBilling).toBe('defender-isoc')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&l=e7&ab=defender-isoc`)!.analyticsBilling).toBe('defender-isoc')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&l=e3&ab=defender-isoc`)!.analyticsBilling).toBe('classic')
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&l=e5-security&ab=defender-isoc`)!.analyticsBilling).toBe('classic')
     expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&ab=free-money`)!.analyticsBilling).toBe('classic')
+  })
+
+  it('clamps licensed seats to the user count', () => {
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&u=100&ls=500`)!.licensedSeats).toBe(100)
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&u=100&ls=-5`)!.licensedSeats).toBe(0)
+    expect(decodeShareState(`v=${SHARE_SCHEMA_VERSION}&u=100&ls=40`)!.licensedSeats).toBe(40)
   })
 })
 

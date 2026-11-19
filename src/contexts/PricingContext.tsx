@@ -1,6 +1,13 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { PricingBundle, STATIC_PRICING_BUNDLE, EXCHANGE_RATE_USD_TO_GBP, EXCHANGE_RATE_USD_TO_EUR } from '../data/pricing'
-import { fetchSentinelPricing, clearRegionCache, getRegionLabel } from '../services/azurePricing'
+import {
+  fetchSentinelPricing,
+  clearRegionCache,
+  getRegionLabel,
+  FAILURE_CACHE_TTL_MS,
+  REGIONAL_RATE_RETRY_NOTE,
+  REGIONAL_RATE_UNPUBLISHED_NOTE,
+} from '../services/azurePricing'
 import { fetchFxRates } from '../services/fxRates'
 import { CurrencyCode } from '../utils/currency'
 import brand from '../config/brand'
@@ -24,10 +31,10 @@ interface PricingContextValue {
   fxIsLive: boolean
   /** Publication date of the live rates, when the provider reported one */
   fxDate: string | null
-  /** Sentinel rates are live, but the ISOC figure is the UK South constant */
-  defenderIsocRateIsFallback: boolean
-  /** Sentinel rates are live, but extended Analytics retention is the UK South constant */
-  analyticsRetentionRateIsFallback: boolean
+  /** Null when the ISOC meter came back live. Otherwise the sentence to show beside the rate. */
+  defenderIsocRateNote: string | null
+  /** Null when extended Analytics retention came back live. */
+  analyticsRetentionRateNote: string | null
 }
 
 const PricingContext = createContext<PricingContextValue | null>(null)
@@ -46,35 +53,69 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
   // Once the user edits a rate by hand their value wins, and a later live
   // fetch must not silently overwrite it.
   const [fxOverridden, setFxOverridden] = useState(false)
-  const [defenderIsocRateIsFallback, setDefenderIsocRateIsFallback] = useState(false)
-  const [analyticsRetentionRateIsFallback, setAnalyticsRetentionRateIsFallback] = useState(false)
+  const [defenderIsocRateNote, setDefenderIsocRateNote] = useState<string | null>(null)
+  const [analyticsRetentionRateNote, setAnalyticsRetentionRateNote] = useState<string | null>(null)
+  // Drops a result that belongs to an earlier region change or a Strict Mode
+  // double-invoke, so a fallback is not counted twice.
+  const loadGeneration = useRef(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isocMisses = useRef(new Map<string, number>())
+  const retentionMisses = useRef(new Map<string, number>())
 
   const loadPricing = useCallback(async (arm: string) => {
+    const generation = ++loadGeneration.current
     setIsLoading(true)
     try {
       const result = await fetchSentinelPricing(arm)
+      if (generation !== loadGeneration.current) return
       setPricing(result.bundle)
       setIsLive(result.isLive)
-      setDefenderIsocRateIsFallback(result.isLive && result.defenderIsocRateIsFallback)
-      setAnalyticsRetentionRateIsFallback(result.isLive && result.analyticsRetentionRateIsFallback)
       const d = new Date(result.fetchedAt)
       setLastFetched(
         d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
       )
+
+      const noteFor = (failed: boolean, misses: Map<string, number>) => {
+        if (!result.isLive || !failed) {
+          misses.delete(arm)
+          return null
+        }
+        const n = (misses.get(arm) ?? 0) + 1
+        misses.set(arm, n)
+        // One automatic refetch. A second miss means the region published no meter.
+        return n >= 2 ? REGIONAL_RATE_UNPUBLISHED_NOTE : REGIONAL_RATE_RETRY_NOTE
+      }
+      const isocNote = noteFor(result.defenderIsocRateIsFallback, isocMisses.current)
+      const retentionNote = noteFor(result.analyticsRetentionRateIsFallback, retentionMisses.current)
+      setDefenderIsocRateNote(isocNote)
+      setAnalyticsRetentionRateNote(retentionNote)
+
+      const retrying = isocNote === REGIONAL_RATE_RETRY_NOTE || retentionNote === REGIONAL_RATE_RETRY_NOTE
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+      if (retrying) {
+        retryTimer.current = setTimeout(() => {
+          clearRegionCache(arm)
+          void loadPricing(arm)
+        }, FAILURE_CACHE_TTL_MS)
+      }
       // isLive=false means every figure on the page comes from static defaults
       // rather than current Azure pricing. That is not an error, but it is worth
       // surfacing — RegionSelector shows it as a warning badge.
     } catch {
+      if (generation !== loadGeneration.current) return
       setIsLive(false)
-      setDefenderIsocRateIsFallback(false)
-      setAnalyticsRetentionRateIsFallback(false)
+      setDefenderIsocRateNote(null)
+      setAnalyticsRetentionRateNote(null)
     } finally {
-      setIsLoading(false)
+      if (generation === loadGeneration.current) setIsLoading(false)
     }
   }, [])
 
   useEffect(() => {
     loadPricing(region)
+    return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    }
   }, [region, loadPricing])
 
   // Exchange rates are global, not per-region, so this runs once on mount.
@@ -110,6 +151,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
   }
 
   function handleRefresh() {
+    isocMisses.current.delete(region)
+    retentionMisses.current.delete(region)
     clearRegionCache(region)
     loadPricing(region)
   }
@@ -131,8 +174,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
     pricing,
     fxIsLive,
     fxDate,
-    defenderIsocRateIsFallback,
-    analyticsRetentionRateIsFallback,
+    defenderIsocRateNote,
+    analyticsRetentionRateNote,
   }
 
   return (

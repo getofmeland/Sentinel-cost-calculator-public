@@ -2,9 +2,10 @@ import { Fragment } from 'react'
 import { SourceEstimateRow } from '../utils/ingestion'
 import { LogTierKey } from '../data/logTiers'
 import { TIER_PLACEMENT_DEFAULTS, TierRecommendation } from '../data/tierPlacement'
-import { DAYS_PER_MONTH, type AnalyticsBillingMode } from '../data/pricing'
+import { DAYS_PER_MONTH, type AnalyticsBillingMode, ISOC_INCLUDED_ANALYTICS_SOURCE_IDS } from '../data/pricing'
 import { GROUP_LABELS, GROUP_ORDER } from '../data/sourceGroups'
 import { fmtCurrency, fmtBoth } from '../utils/currency'
+import { splitIsocAnalyticsGb } from '../utils/tiers'
 import { usePricing } from '../contexts/PricingContext'
 
 interface Props {
@@ -50,7 +51,7 @@ export function TierPlacementTab({
 }: Props) {
   const { pricing, fxRate, eurRate, displayCurrency } = usePricing()
   const isocSelected = analyticsBilling === 'defender-isoc'
-  const analyticsRateUsd = isocSelected ? pricing.defenderIsocRateUsd : pricing.paygRateUsd
+  const isocVolume = splitIsocAnalyticsGb(rows)
   if (rows.length === 0) {
     return (
       <div className="bg-surface rounded-xl border border-white/10 shadow-sm px-6 py-10 text-center">
@@ -61,9 +62,11 @@ export function TierPlacementTab({
     )
   }
 
-  const allAnalyticsCostMonthly = (analyticsGbPerDay + dataLakeGbPerDay) * analyticsRateUsd * DAYS_PER_MONTH
+  const allAnalyticsCostMonthly = isocSelected
+    ? (isocVolume.paidGbPerDay + dataLakeGbPerDay) * pricing.defenderIsocRateUsd * DAYS_PER_MONTH
+    : (analyticsGbPerDay + dataLakeGbPerDay) * pricing.paygRateUsd * DAYS_PER_MONTH
   const analyticsMonthly = isocSelected
-    ? analyticsGbPerDay * pricing.defenderIsocRateUsd * DAYS_PER_MONTH
+    ? isocVolume.paidGbPerDay * pricing.defenderIsocRateUsd * DAYS_PER_MONTH
     : analyticsDailyCostUsd * DAYS_PER_MONTH
   const currentCostMonthly = analyticsMonthly + dataLakeDailyCostUsd * DAYS_PER_MONTH
   const saving = allAnalyticsCostMonthly - currentCostMonthly
@@ -152,6 +155,8 @@ export function TierPlacementTab({
                       dailyCostDisplay = 'Free'
                     } else if (currentTier === 'data-lake') {
                       dailyCostDisplay = fmtCurrency(row.gbPerDay * pricing.dataLakeRateUsd, displayCurrency, fxRate, eurRate, 2)
+                    } else if (isocSelected && ISOC_INCLUDED_ANALYTICS_SOURCE_IDS.has(row.source.id)) {
+                      dailyCostDisplay = 'Included'
                     } else if (isocSelected) {
                       dailyCostDisplay = fmtCurrency(row.gbPerDay * pricing.defenderIsocRateUsd, displayCurrency, fxRate, eurRate, 2)
                     } else {

@@ -54,18 +54,16 @@ describe('toCsv', () => {
 })
 
 const summary = {
-  rows: [{
-    source: { id: 'entra-id', label: 'Entra ID', isFree: false },
-    gbPerDay: 10,
-    logTier: 'analytics',
-    dailyCostUsd: 53.8,
-    retentionDays: 90,
-    retentionMonthlyCostUsd: 0,
-  }],
-  totalGbPerDay: 10,
-  freeGbPerDay: 0,
+  rows: [
+    { source: { id: 'entra-id', label: 'Entra ID', isFree: false }, gbPerDay: 4, logTier: 'analytics', dailyCostUsd: 21.52, retentionDays: 90, retentionMonthlyCostUsd: 0 },
+    { source: { id: 'dns', label: 'DNS', isFree: false }, gbPerDay: 6, logTier: 'analytics', dailyCostUsd: 32.28, retentionDays: 90, retentionMonthlyCostUsd: 0 },
+    { source: { id: 'azure-activity', label: 'Azure Activity', isFree: true }, gbPerDay: 1, logTier: 'analytics', dailyCostUsd: 0, retentionDays: 90, retentionMonthlyCostUsd: 0 },
+    { source: { id: 'dns-lake', label: 'Firewall', isFree: false }, gbPerDay: 8, logTier: 'data-lake', dailyCostUsd: 1.5, retentionDays: 30, retentionMonthlyCostUsd: 0.2 },
+  ],
+  totalGbPerDay: 19,
+  freeGbPerDay: 1,
   analyticsGbPerDay: 10,
-  dataLakeGbPerDay: 0,
+  dataLakeGbPerDay: 8,
 } as unknown as IngestionSummary
 
 describe('buildEstimateCsv', () => {
@@ -87,15 +85,26 @@ describe('buildEstimateCsv', () => {
     expect(csv).not.toContain('Defender ISOC')
   })
 
-  it('prices Analytics rows at the ISOC rate and does not call that total a commitment tier', () => {
+  it('prices only additional Analytics rows at the ISOC rate', () => {
     const csv = buildEstimateCsv({
       ...base,
       analyticsBilling: 'defender-isoc',
       defenderIsocRateUsd: 2.88,
-      optimisedMonthlyUsd: 10 * 2.88 * DAYS_PER_MONTH,
+      licensedSeats: 400,
+      optimisedMonthlyUsd: 6 * 2.88 * DAYS_PER_MONTH,
     })
-    expect(csv).toContain('Defender ISOC (flat, licence grants not applied)')
+    expect(csv).toContain('Defender ISOC (flat, additional data only)')
     expect(csv).not.toContain('Commitment tier')
-    expect(csv).toContain((10 * 2.88 * DAYS_PER_MONTH).toFixed(2))
+    expect(csv).toContain('Included with ISOC')
+    expect(csv).toContain('No (free)')
+    expect(csv).toContain('Licensed seats,400')
+    expect(csv).toContain((6 * 2.88 * DAYS_PER_MONTH).toFixed(2))
+    expect(csv).toContain((1.5 * DAYS_PER_MONTH).toFixed(2))
+  })
+
+  it('still names Defender ISOC when the rate was not supplied', () => {
+    const csv = buildEstimateCsv({ ...base, analyticsBilling: 'defender-isoc' })
+    expect(csv).toContain('Defender ISOC (flat, additional data only)')
+    expect(csv).not.toContain('Commitment tier')
   })
 })

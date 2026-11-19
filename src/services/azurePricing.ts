@@ -37,9 +37,13 @@ export const AZURE_REGION_GROUPS: Array<{ group: string; regions: AzureRegion[] 
 
 export const DEFAULT_REGION = 'uksouth'
 
-/** Shown when a live regional meter was missing and the UK South constant is in use. */
-export const REGIONAL_RATE_FALLBACK_NOTE =
-  'UK South list price. The live rate for this region was unavailable and will be retried shortly.'
+/** Shown while a scheduled refetch of a missing regional meter is still outstanding. */
+export const REGIONAL_RATE_RETRY_NOTE =
+  'UK South list price. Checking this region\'s published rate again.'
+
+/** Shown after that refetch still finds no meter. */
+export const REGIONAL_RATE_UNPUBLISHED_NOTE =
+  'This region has no published meter for this rate. Showing the UK South list price.'
 
 export function getRegionLabel(arm: string): string {
   for (const { regions } of AZURE_REGION_GROUPS) {
@@ -73,7 +77,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h
 // A failed fetch is cached only briefly. Caching a transient network error for
 // a full day would pin the user to static rates until they found the refresh
 // button, with the UI giving no clue why.
-const FAILURE_CACHE_TTL_MS = 60 * 1000 // 1 min
+export const FAILURE_CACHE_TTL_MS = 60 * 1000 // 1 min
 
 export function clearRegionCache(arm: string) {
   cache.delete(arm)
@@ -256,7 +260,7 @@ export interface FetchResult {
 
 export async function fetchSentinelPricing(region: string): Promise<FetchResult> {
   const cached = cache.get(region)
-    if (cached) {
+  if (cached) {
     const ttl = cached.isFailure || cached.shortTtl ? FAILURE_CACHE_TTL_MS : CACHE_TTL_MS
     if (Date.now() - cached.fetchedAt < ttl) {
       return {

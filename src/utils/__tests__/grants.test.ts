@@ -283,8 +283,8 @@ describe('promotional tiers are disclosed', () => {
     const opp = r.opportunities.find(o => o.kind === 'commitment-tier')
     if (opp?.title.includes('50 GB/day')) {
       expect(opp.detail).toMatch(/promotional tier/i)
-      expect(opp.detail).toMatch(/2026-12-31/)
-      expect(opp.detail).toMatch(/2027-03-31/)
+      expect(opp.detail).toMatch(/31 December 2026/)
+      expect(opp.detail).toMatch(/31 March 2027/)
     }
   })
 })

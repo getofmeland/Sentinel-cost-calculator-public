@@ -27,7 +27,8 @@ import {
   includedSecurityCopilotScus,
 } from '../../data/licenceBenefits'
 import { computeLicenceBenefits } from '../licenceBenefits'
-import { computeTierOptions, defenderIsocMonthlyUsd } from '../tiers'
+import { computeTierOptions, defenderIsocMonthlyUsd, splitIsocAnalyticsGb } from '../tiers'
+import { clampLicensedSeats, coerceAnalyticsBilling } from '../shareState'
 import { formatUkDate } from '../dates'
 import type { SourceEstimateRow } from '../ingestion'
 
@@ -71,6 +72,39 @@ describe('data lake retention after general availability', () => {
   })
 })
 
+describe('Defender ISOC paid volume', () => {
+  it('leaves listed Defender and Entra data off the meter and keeps other Analytics data on it', () => {
+    const split = splitIsocAnalyticsGb([
+      { source: { id: 'mde', isFree: false }, gbPerDay: 4, logTier: 'analytics' },
+      { source: { id: 'entra-id', isFree: false }, gbPerDay: 1, logTier: 'analytics' },
+      { source: { id: 'dns', isFree: false }, gbPerDay: 6, logTier: 'analytics' },
+      { source: { id: 'azure-activity', isFree: true }, gbPerDay: 2, logTier: 'analytics' },
+      { source: { id: 'mde', isFree: false }, gbPerDay: 3, logTier: 'data-lake' },
+    ])
+    expect(split.includedGbPerDay).toBe(5)
+    expect(split.paidGbPerDay).toBe(6)
+  })
+
+  it('does not let a Sentinel grant shrink the ISOC charge', () => {
+    const additionalGbPerDay = 10
+    const grantGbPerDay = 5
+    const onTheMeter = defenderIsocMonthlyUsd(additionalGbPerDay, DEFENDER_ISOC_RATE_USD_PER_GB)
+    const ifTheGrantWereApplied = defenderIsocMonthlyUsd(additionalGbPerDay - grantGbPerDay, DEFENDER_ISOC_RATE_USD_PER_GB)
+    expect(onTheMeter).toBeCloseTo(additionalGbPerDay * DEFENDER_ISOC_RATE_USD_PER_GB * DAYS_PER_MONTH, 6)
+    expect(onTheMeter).toBeGreaterThan(ifTheGrantWereApplied)
+  })
+
+  it('drops ISOC for an ineligible licence and clamps seats', () => {
+    expect(coerceAnalyticsBilling('defender-isoc', 'e5')).toBe('defender-isoc')
+    expect(coerceAnalyticsBilling('defender-isoc', 'e7')).toBe('defender-isoc')
+    expect(coerceAnalyticsBilling('defender-isoc', 'e5-security')).toBe('classic')
+    expect(coerceAnalyticsBilling('defender-isoc', 'e3')).toBe('classic')
+    expect(clampLicensedSeats(800, 500)).toBe(500)
+    expect(clampLicensedSeats(-3, 500)).toBe(0)
+    expect(clampLicensedSeats(null, 500)).toBeNull()
+  })
+})
+
 describe('Defender ISOC billing', () => {
   it('prices Analytics volume at the flat UK South fallback and stays off the commitment ladder', () => {
     const monthly = defenderIsocMonthlyUsd(10, DEFENDER_ISOC_RATE_USD_PER_GB)
@@ -82,6 +116,14 @@ describe('Defender ISOC billing', () => {
     const options = computeTierOptions(100, STATIC_PRICING_BUNDLE)
     expect(options.some(o => /isoc/i.test(o.label))).toBe(false)
     expect(options.filter(o => o.isRecommended)).toHaveLength(1)
+  })
+
+  it('stops recommending the 50 GB promo after sign-ups close', () => {
+    const during = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2026-12-31T00:00:00Z'))
+    const after = computeTierOptions(40, STATIC_PRICING_BUNDLE, 1, new Date('2027-01-01T00:00:00Z'))
+    expect(during.some(o => o.tier?.gbPerDay === 50)).toBe(true)
+    expect(after.some(o => o.tier?.gbPerDay === 50)).toBe(false)
+    expect(after.find(o => o.isRecommended)?.tier?.isPreviewPromo).toBeUndefined()
   })
 })
 

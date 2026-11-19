@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { IngestionSummary } from '../utils/ingestion'
-import { TierOption, costAtVolume, defenderIsocMonthlyUsd } from '../utils/tiers'
+import { TierOption, costAtVolume, defenderIsocMonthlyUsd, splitIsocAnalyticsGb } from '../utils/tiers'
 import { DAYS_PER_MONTH, type AnalyticsBillingMode } from '../data/pricing'
 import { fmtCurrency } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
@@ -20,6 +20,7 @@ interface Props {
   computeMonthlyUsd: number
   analyticsBilling: AnalyticsBillingMode
   onAnalyticsBillingChange: (mode: AnalyticsBillingMode) => void
+  isocEligible: boolean
 }
 
 function SavingBadge({ pct }: { pct: number }) {
@@ -66,6 +67,7 @@ export function CostSummary({
   computeMonthlyUsd,
   analyticsBilling,
   onAnalyticsBillingChange,
+  isocEligible,
 }: Props) {
   const { fxRate, displayCurrency, eurRate, pricing } = usePricing()
   const isocSelected = analyticsBilling === 'defender-isoc'
@@ -140,9 +142,10 @@ export function CostSummary({
     0, commitmentNetMonthly + dataLakeMonthly + retentionMonthly + computeMonthly,
   )
 
-  // Defender ISOC prices the gross Analytics volume at a flat rate. Sentinel
-  // licence grants are not subtracted: they are credits on Sentinel meters.
-  const isocAnalyticsMonthly = defenderIsocMonthlyUsd(analyticsGrossGbPerDay, pricing.defenderIsocRateUsd)
+  // Defender ISOC prices additional Analytics data only. Listed native Defender
+  // and Entra sources are included in the benefit and are not on this meter.
+  const isocVolume = splitIsocAnalyticsGb(summary.rows)
+  const isocAnalyticsMonthly = defenderIsocMonthlyUsd(isocVolume.paidGbPerDay, pricing.defenderIsocRateUsd)
   const isocTotal = Math.max(0, isocAnalyticsMonthly + dataLakeMonthly + retentionMonthly + computeMonthly)
   const scenarioAnalyticsMonthly = isocSelected ? isocAnalyticsMonthly : commitmentGrossMonthly
   const scenarioTotal = isocSelected ? isocTotal : commitmentOptimisedTotal
@@ -194,7 +197,7 @@ export function CostSummary({
               }}
               className="text-sm border border-white/15 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-light"
             >
-              <option value="defender-isoc">Defender ISOC (flat)</option>
+              {isocEligible && <option value="defender-isoc">Defender ISOC (flat)</option>}
               {tierOptions.map(o => (
                 <option key={o.label} value={o.label}>
                   {o.label}{o.isRecommended ? ' ★ Recommended' : ''}

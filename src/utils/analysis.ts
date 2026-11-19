@@ -1,4 +1,5 @@
 import { PricingBundle, STATIC_PRICING_BUNDLE, DAYS_PER_MONTH, BILLING_RULES } from '../data/pricing'
+import { formatUkDate } from './dates'
 import {
   matchTable, guessTable, attributeTable, isAlwaysFreeTable, type TableMatch,
 } from '../data/tableIndex'
@@ -592,8 +593,8 @@ export function analyseUsage(
       // land in a client deliverable with no note against it.
       const promoNote = recommended.tier?.isPreviewPromo
         ? ` This is a preview promotional tier. New sign-ups close on `
-          + `${BILLING_RULES.promoTierSignupDeadline}. Customers who sign up by then keep the `
-          + `promotional price until ${BILLING_RULES.promoTierExpiryDate}. Do not quote it beyond `
+          + `${formatUkDate(BILLING_RULES.promoTierSignupDeadline)}. Customers who sign up by then keep the `
+          + `promotional price until ${formatUkDate(BILLING_RULES.promoTierExpiryDate)}. Do not quote it beyond `
           + `the lock-in date without checking.`
         : ''
       opportunities.push({

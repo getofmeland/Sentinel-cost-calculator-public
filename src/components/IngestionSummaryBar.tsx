@@ -1,7 +1,7 @@
 import { IngestionSummary } from '../utils/ingestion'
 import { fmtCurrency } from '../utils/currency'
 import { usePricing } from '../contexts/PricingContext'
-import { REGIONAL_RATE_FALLBACK_NOTE } from '../services/azurePricing'
+import { splitIsocAnalyticsGb } from '../utils/tiers'
 import { getTierDefinition } from '../data/logTiers'
 import { BILLING_RULES, type AnalyticsBillingMode } from '../data/pricing'
 import { formatUkDate } from '../utils/dates'
@@ -12,7 +12,9 @@ interface IngestionSummaryBarProps {
 }
 
 export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: IngestionSummaryBarProps) {
-  const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateIsFallback } = usePricing()
+  const { pricing, fxRate, displayCurrency, eurRate, defenderIsocRateNote } = usePricing()
+  const isocVolume = splitIsocAnalyticsGb(summary.rows)
+  const isocSelected = analyticsBilling === 'defender-isoc'
 
   function fmt(usd: number, decimals = 0) {
     return fmtCurrency(usd, displayCurrency, fxRate, eurRate, decimals)
@@ -71,20 +73,29 @@ export function IngestionSummaryBar({ summary, analyticsBilling = 'classic' }: I
           <p className="text-[10px] font-semibold text-warning/70 uppercase tracking-widest">Analytics</p>
           <p className="text-3xl font-bold font-mono mt-1 leading-none text-warning">{summary.analyticsGbPerDay.toFixed(2)}</p>
           <p className="text-xs text-light/50 mt-1">GB/day</p>
-          <p className="text-xs text-light/60 mt-1.5">
-            {fmt(summary.analyticsDailyCostUsd)}/day
-            <span> · commitment tiers apply</span>
-          </p>
-          <p className={`text-xs mt-1 ${analyticsBilling === 'defender-isoc' ? 'text-primary-text' : 'text-light/60'}`}>
-            Defender ISOC {isocRateConverted}/GB flat
-            <span> · no commitment tiers</span>
-            {analyticsBilling === 'defender-isoc' && <span> · selected</span>}
-          </p>
+          {isocSelected ? (
+            <p className="text-xs text-primary-text mt-1.5">
+              Defender ISOC {fmt(isocVolume.paidGbPerDay * pricing.defenderIsocRateUsd)}/day
+              <span> · {isocRateConverted}/GB on additional data</span>
+            </p>
+          ) : (
+            <p className="text-xs text-light/60 mt-1.5">
+              {fmt(summary.analyticsDailyCostUsd)}/day
+              <span> · commitment tiers apply</span>
+            </p>
+          )}
+          {!isocSelected && (
+            <p className="text-xs text-light/60 mt-1">
+              Defender ISOC {isocRateConverted}/GB flat
+              <span> · no commitment tiers</span>
+            </p>
+          )}
           <p className="text-[11px] text-light/60 mt-1 leading-snug">
-            Opt-in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)} for Microsoft 365 E5, E7 and Defender Suite.
+            Opt-in from {formatUkDate(BILLING_RULES.defenderIsocOptInDate)} for Microsoft 365 E5 or E7.
+            Listed Defender and Entra data is not on this meter. Other sources stay on it, so the figure is an upper bound where Microsoft&apos;s list is silent.
           </p>
-          {defenderIsocRateIsFallback && (
-            <p className="text-[11px] text-light/60 mt-1 leading-snug">{REGIONAL_RATE_FALLBACK_NOTE}</p>
+          {defenderIsocRateNote && (
+            <p className="text-[11px] text-light/60 mt-1 leading-snug">{defenderIsocRateNote}</p>
           )}
         </div>
 

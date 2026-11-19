@@ -150,7 +150,7 @@ describe('COMMITMENT_TIERS integrity', () => {
 
 describe('computeTierOptions', () => {
   describe('at 0 GB/day', () => {
-    const options = computeTierOptions(0)
+    const options = computeTierOptions(0, STATIC_PRICING_BUNDLE, 0.7425, new Date('2026-11-19T00:00:00Z'))
 
     it('returns an array including PAYG and all commitment tiers', () => {
       // 1 PAYG + 7 commitment tiers = 8 total

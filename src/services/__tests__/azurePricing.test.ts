@@ -13,9 +13,9 @@
  *   curl "https://prices.azure.com/api/retail/prices?\$filter=serviceName%20eq%20'Sentinel'%20and%20armRegionName%20eq%20'uksouth'"
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 
-import { parsePayg, parseTiers, parseDataLake, parseDefenderIsoc, parseAnalyticsRetention, type AzurePriceItem } from '../azurePricing'
+import { parsePayg, parseTiers, parseDataLake, parseDefenderIsoc, parseAnalyticsRetention, fetchSentinelPricing, clearRegionCache, FAILURE_CACHE_TTL_MS, type AzurePriceItem } from '../azurePricing'
 import { STATIC_PRICING_BUNDLE, PAYG_RATE_USD_PER_GB, DATA_LAKE_RATE_USD_PER_GB, DEFENDER_ISOC_RATE_USD_PER_GB } from '../../data/pricing'
 import fixture from './sentinel-uksouth.fixture.json'
 
@@ -161,5 +161,82 @@ describe('parseAnalyticsRetention', () => {
   it('ignores the Defender ISOC meter of the same name', () => {
     const mixed = [ISOC_UK_SOUTH.find(i => i.meterName === 'Analytics Logs Data Retention')!, logAnalytics[0]]
     expect(parseAnalyticsRetention(mixed)).toBe(0.13)
+  })
+})
+
+function priceResponse(body: unknown) {
+  return {
+    ok: true,
+    json: async () => body,
+  }
+}
+
+describe('fetchSentinelPricing optional meters', () => {
+  const region = 'isoc-fallback-test'
+  const sentinel = {
+    Items: [{
+      meterName: 'Pay-as-you-go Analysis',
+      retailPrice: 4.3,
+      unitOfMeasure: '1 GB',
+      armRegionName: region,
+      productName: 'Sentinel',
+    }],
+  }
+  const retention = {
+    Items: [{
+      meterName: 'Analytics Logs Data Retention',
+      retailPrice: 0.1,
+      unitOfMeasure: '1 GB/Month',
+      armRegionName: region,
+      productName: 'Log Analytics',
+    }],
+  }
+
+  afterEach(() => {
+    clearRegionCache(region)
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('keeps a missing ISOC meter on the UK South fallback and retries after the short TTL', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input))
+      if (url.includes('Microsoft Defender ISOC')) return priceResponse({ Items: [] })
+      if (url.includes('Log Analytics')) return priceResponse(retention)
+      return priceResponse(sentinel)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const start = Date.parse('2026-11-19T00:00:00Z')
+    vi.setSystemTime(start)
+
+    const first = await fetchSentinelPricing(region)
+    expect(first.isLive).toBe(true)
+    expect(first.defenderIsocRateIsFallback).toBe(true)
+    expect(first.analyticsRetentionRateIsFallback).toBe(false)
+    expect(first.bundle.defenderIsocRateUsd).toBe(DEFENDER_ISOC_RATE_USD_PER_GB)
+    expect(first.bundle.analyticsExtendedRetentionRateUsd).toBe(0.1)
+    const calls = fetchMock.mock.calls.length
+
+    vi.setSystemTime(start + 30_000)
+    await fetchSentinelPricing(region)
+    expect(fetchMock.mock.calls.length).toBe(calls)
+
+    vi.setSystemTime(start + FAILURE_CACHE_TTL_MS + 1_000)
+    await fetchSentinelPricing(region)
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(calls)
+  })
+
+  it('treats a failed optional query the same way as a response with no meter', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = decodeURIComponent(String(input))
+      if (url.includes('Microsoft Defender ISOC')) throw new Error('network')
+      if (url.includes('Log Analytics')) return priceResponse(retention)
+      return priceResponse(sentinel)
+    }))
+    const result = await fetchSentinelPricing(region)
+    expect(result.defenderIsocRateIsFallback).toBe(true)
+    expect(result.bundle.paygRateUsd).toBe(4.3)
+    expect(result.isLive).toBe(true)
   })
 })

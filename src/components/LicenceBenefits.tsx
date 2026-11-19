@@ -37,6 +37,13 @@ interface Props {
   linuxServerGbPerDay: number
 }
 
+function formatScus(n: number): string {
+  const rounded = Math.round(n * 10) / 10
+  return Number.isInteger(rounded)
+    ? rounded.toLocaleString('en-GB')
+    : rounded.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
 // ─── Licence card ─────────────────────────────────────────────────────────────
 
 function LicenceCard({
@@ -197,7 +204,7 @@ export function LicenceBenefits({
               placeholder={String(totalUsers)}
               onChange={e => {
                 const v = e.target.value.trim()
-                onLicensedSeatsChange(v === '' ? null : Math.max(0, Number(v) || 0))
+                onLicensedSeatsChange(v === '' ? null : Math.min(totalUsers, Math.max(0, Number(v) || 0)))
               }}
               className="w-28 px-2 py-1 text-sm rounded-md bg-surface border border-white/15 text-light font-mono focus:outline-none focus:ring-2 focus:ring-primary"
             />
@@ -229,7 +236,7 @@ export function LicenceBenefits({
             Microsoft 365 E5 and E7 include {SECURITY_COPILOT_SCUS_PER_THOUSAND_LICENCES.toLocaleString('en-GB')} security
             compute units a month for every 1,000 paid user licences, up to {SECURITY_COPILOT_MONTHLY_CAP_SCUS.toLocaleString('en-GB')} a month.
             At {userCount.toLocaleString('en-GB')} licensed seats that is{' '}
-            {includedSecurityCopilotScus(userCount).toLocaleString('en-GB', { maximumFractionDigits: 1 })} SCUs/month.
+            {formatScus(includedSecurityCopilotScus(userCount))} SCUs/month.
             That capacity can be used for Security Copilot in Microsoft Sentinel. The ingestion estimate is unchanged by this inclusion.
           </p>
         </div>
